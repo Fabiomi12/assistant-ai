@@ -34,26 +34,7 @@ class MainActivity : ComponentActivity() {
                 val conversations by vm.conversations.collectAsState()
 
                 // 4) Compose the NavGraph, wiring in VM state & actions
-                AppNavGraph(
-                    navController      = navController,
-                    username           = vm.username,
-                    conversations      = conversations,
-                    getMessagesFor     = { convId ->
-                        // Tell VM to switch to this conversation…
-                        vm.selectConversation(convId)
-                        // …and read off its messages
-                        vm.messages.value
-                    },
-                    onSendMessage      = { text ->
-                        vm.sendMessage(text)
-                    },
-                    onSettingsClick    = {
-                        navController.navigate("settings")
-                    },
-                    onStartNewChat     = { initialText ->
-                        vm.startNewConversation(initialText)
-                    }
-                )
+                AppNavGraph(navController = navController)
             }
         }
     }

@@ -76,6 +76,9 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
 
+    // Datastore
+    implementation(libs.androidx.datastore.preferences)
+
 }
 
 

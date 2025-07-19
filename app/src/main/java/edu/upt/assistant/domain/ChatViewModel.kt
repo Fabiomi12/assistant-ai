@@ -13,7 +13,9 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.UUID
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import javax.inject.Inject
 
 @HiltViewModel
@@ -23,6 +25,11 @@ class ChatViewModel @Inject constructor(
 
   val username = "Fabio"
 
+  // track it internally
+  private val _currentId = MutableStateFlow<String?>(null)
+  val currentConversationId: String
+    get() = _currentId.value ?: throw IllegalStateException("No conversation yet")
+
   val conversations: StateFlow<List<Conversation>> =
     repo.getConversations().stateIn(
       viewModelScope,
@@ -30,32 +37,46 @@ class ChatViewModel @Inject constructor(
       emptyList()
     )
 
-  private val _currentId = MutableStateFlow<String?>(null)
-
   @OptIn(ExperimentalCoroutinesApi::class)
   val messages: StateFlow<List<Message>> = _currentId
     .filterNotNull()
     .flatMapLatest { repo.getMessages(it) }
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-  fun startNewConversation(initialText: String) {
-    val id = UUID.randomUUID().toString()
+  /**
+   * Create a conversation with the given ID *synchronously*,
+   * then send the first message.
+   */
+  fun startNewConversation(conversationId: String, initialText: String) {
+    // 1️⃣ Tell the UI to start observing this convo immediately:
+    _currentId.value = conversationId
+
     viewModelScope.launch {
-      repo.createConversation(Conversation(id, "Chat $id", "", ""))
-      repo.sendMessage(id, initialText)
-      _currentId.value = id
+      repo.createConversation(
+        Conversation(conversationId, "Chat at ${currentTimeLabel()}", "", currentTimeLabel())
+      )
+      repo.sendMessage(conversationId, initialText)
     }
   }
+
+  // Helper to format timestamps
+  private fun currentTimeLabel(): String =
+    SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
+      .format(Date(System.currentTimeMillis()))
 
   fun selectConversation(id: String) {
     _currentId.value = id
   }
 
-  fun sendMessage(text: String) {
-    val convId = _currentId.value ?: return
-    viewModelScope.launch {
-      repo.sendMessage(convId, text)
-    }
+  fun sendMessage(conversationId: String, text: String) {
+    viewModelScope.launch { repo.sendMessage(conversationId, text) }
   }
+
+  /**
+   * Public helper to get the messages Flow for any conversation ID.
+   */
+  fun messagesFor(conversationId: String) =
+    repo.getMessages(conversationId)
+
 }
 

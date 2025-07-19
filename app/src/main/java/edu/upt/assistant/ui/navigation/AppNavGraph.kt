@@ -1,74 +1,93 @@
 package edu.upt.assistant.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
-import edu.upt.assistant.ui.screens.ChatScreen
-import edu.upt.assistant.ui.screens.Conversation
+import edu.upt.assistant.domain.ChatViewModel
+import edu.upt.assistant.domain.SettingsViewModel
+import edu.upt.assistant.ui.screens.ChatRoute
 import edu.upt.assistant.ui.screens.HistoryScreen
-import edu.upt.assistant.ui.screens.Message
 import edu.upt.assistant.ui.screens.NewChatScreen
+import edu.upt.assistant.ui.screens.SettingsScreen
+import java.util.UUID
 
-private const val NEW_CHAT_ROUTE   = "new_chat"
-private const val CHAT_ROUTE = "chat/{conversationId}"
-private const val HISTORY_ROUTE = "history"
+const val NEW_CHAT_ROUTE = "new_chat"
+const val HISTORY_ROUTE  = "history"
+const val CHAT_ROUTE     = "chat/{conversationId}"
+const val SETTINGS_ROUTE = "settings"
 
 @Composable
 fun AppNavGraph(
-    navController: NavHostController = rememberNavController(),
-    username: String,
-    conversations: List<Conversation>,
-    getMessagesFor: (String) -> List<Message>,
-    onSendMessage: (String) -> Unit,
-    onSettingsClick: () -> Unit,
-    onStartNewChat: (String) -> Unit
+    navController: NavHostController,
 ) {
+    // grab the VM once at top‐level
+    val vm: ChatViewModel = hiltViewModel()
+
+    // collect conversations reactively
+    val conversations by vm.conversations.collectAsState()
+
     NavHost(
         navController = navController,
         startDestination = NEW_CHAT_ROUTE
     ) {
-        // 1) NEW CHAT SCREEN
+        // 1) Setup / New Chat Screen
         composable(NEW_CHAT_ROUTE) {
             NewChatScreen(
-                userName = username,
-                onStartChat = { initialMessage ->
-                    // a) generate a new ID
-                    val newId = (conversations.size + 1).toString()
-                    // b) let your host (MainActivity/ViewModel) add it to the history list
-                    onStartNewChat(newId)
-                    // c) send that first message into the new convo
-                    onSendMessage(initialMessage)
-                    // d) navigate into the chat view, popping the new_chat screen
+                username        = vm.username,
+                onStartChat     = { initial ->
+                    // Generate the ID immediately:
+                    val newId = UUID.randomUUID().toString()
+                    // Tell VM to create + send:
+                    // TODO fix message save
+                    vm.startNewConversation(newId, initial)
+                    // Navigate with that same ID
                     navController.navigate("chat/$newId") {
                         popUpTo(NEW_CHAT_ROUTE) { inclusive = true }
                     }
-                }
+                },
+                onHistoryClick  = { navController.navigate(HISTORY_ROUTE) },
+                onSettingsClick = { navController.navigate(SETTINGS_ROUTE) }
             )
         }
 
-        // 2) HISTORY SCREEN
+        // 2) History Screen
         composable(HISTORY_ROUTE) {
             HistoryScreen(
                 conversations = conversations,
                 onBack = { navController.popBackStack() },
-                onConversationClick = { id ->
-                    navController.navigate("chat/$id")
+                onConversationClick = { convId ->
+                    navController.navigate("chat/$convId")
                 }
             )
         }
 
-        // 3) CHAT SCREEN
+        // 3) Chat Screen (reactive!)
         composable(CHAT_ROUTE) { backStackEntry ->
-            val conversationId = backStackEntry.arguments!!.getString("conversationId")!!
-            ChatScreen(
-                messages        = getMessagesFor(conversationId),
-                onSend          = { text -> onSendMessage(text) },
-                onHistoryClick  = { navController.navigate(HISTORY_ROUTE) },
-                onSettingsClick = onSettingsClick
+            val convId = backStackEntry.arguments!!.getString("conversationId")!!
+
+            ChatRoute(
+                conversationId = convId,
+                navController   = navController,
+            )
+        }
+
+        // 4) Settings Screen (when you build it)
+        composable(SETTINGS_ROUTE) {
+            val settingsVm: SettingsViewModel = hiltViewModel()
+            val username by settingsVm.username.collectAsState()
+            val notificationsEnabled by settingsVm.notificationsEnabled.collectAsState()
+
+            SettingsScreen(
+                username = username,
+                notificationsEnabled = notificationsEnabled,
+                onUserNameChange = { settingsVm.setUsername(it) },
+                onNotificationsToggle = { settingsVm.setNotificationsEnabled(it) },
+                onBack = { navController.popBackStack() }
             )
         }
     }
 }
-
