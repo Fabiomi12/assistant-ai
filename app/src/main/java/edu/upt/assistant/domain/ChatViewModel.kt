@@ -20,8 +20,6 @@ class ChatViewModel @Inject constructor(
     private val repo: ChatRepository
 ) : ViewModel() {
 
-    val username = "Fabio"
-
     val conversations: StateFlow<List<Conversation>> =
         repo.getConversations().stateIn(
             viewModelScope,

@@ -26,6 +26,10 @@ class SettingsViewModel @Inject constructor(
     .map { prefs -> prefs[SettingsKeys.NOTIFICATIONS] ?: false }
     .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+  val setupDone: StateFlow<Boolean> = dataStore.data
+    .map { prefs -> prefs[SettingsKeys.NOTIFICATIONS] ?: false }
+    .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
   // Update username
   fun setUsername(name: String) = viewModelScope.launch {
     dataStore.edit { prefs ->

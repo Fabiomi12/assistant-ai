@@ -13,12 +13,8 @@ import edu.upt.assistant.ui.screens.ChatRoute
 import edu.upt.assistant.ui.screens.HistoryScreen
 import edu.upt.assistant.ui.screens.NewChatScreen
 import edu.upt.assistant.ui.screens.SettingsScreen
+import edu.upt.assistant.ui.screens.SetupRoute
 import java.util.UUID
-
-const val NEW_CHAT_ROUTE = "new_chat"
-const val HISTORY_ROUTE  = "history"
-const val CHAT_ROUTE     = "chat/{conversationId}"
-const val SETTINGS_ROUTE = "settings"
 
 @Composable
 fun AppNavGraph(
@@ -26,18 +22,34 @@ fun AppNavGraph(
 ) {
     // grab the VM once at top‐level
     val vm: ChatViewModel = hiltViewModel()
+    val settingsVm: SettingsViewModel = hiltViewModel()
 
     // collect conversations reactively
     val conversations by vm.conversations.collectAsState()
+    val username by settingsVm.username.collectAsState(initial = "")
+    val notifications     by settingsVm.notificationsEnabled.collectAsState(initial = false)
+    val setupDone         by settingsVm.setupDone.collectAsState(initial = false)
+
+    // pick start based on whether onboarding completed
+    val startRoute = if (setupDone) NEW_CHAT_ROUTE else SETUP_ROUTE
 
     NavHost(
         navController = navController,
-        startDestination = NEW_CHAT_ROUTE
+        startDestination = startRoute
     ) {
+        // 0) Onboarding / Setup
+        composable(SETUP_ROUTE) {
+            SetupRoute(
+                onFinish = {
+                    navController.navigate(NEW_CHAT_ROUTE)
+                }
+            )
+        }
+
         // 1) Setup / New Chat Screen
         composable(NEW_CHAT_ROUTE) {
             NewChatScreen(
-                username        = vm.username,
+                username        = username,
                 onStartChat     = { initial ->
                     // Generate the ID immediately:
                     val newId = UUID.randomUUID().toString()
