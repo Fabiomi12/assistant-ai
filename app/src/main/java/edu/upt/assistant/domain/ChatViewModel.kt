@@ -5,9 +5,17 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import edu.upt.assistant.ui.screens.Conversation
 import edu.upt.assistant.ui.screens.Message
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -30,26 +38,45 @@ class ChatViewModel @Inject constructor(
     fun messagesFor(conversationId: String): Flow<List<Message>> =
         repo.getMessages(conversationId)
 
-    /**
-     * Create a conversation with the given ID *synchronously*,
-     * then send the first message.
-     */
-    fun startNewConversation(conversationId: String, initialText: String) =
-        viewModelScope.launch {
-            repo.createConversation(
-                Conversation(
-                    id = conversationId,
-                    title = "Chat at ${currentTimeLabel()}",
-                    lastMessage = "",
-                    timestamp = currentTimeLabel()
-                )
-            )
-            repo.sendMessage(conversationId, initialText)
-        }
+    // this SharedFlow will emit each token as it arrives
+    private val _streamedTokens = MutableSharedFlow<String>(replay = 0)
+    val streamedTokens: SharedFlow<String> = _streamedTokens.asSharedFlow()
 
-    fun sendMessage(conversationId: String, text: String) {
-        viewModelScope.launch { repo.sendMessage(conversationId, text) }
-    }
+    /**
+     * Creates a new conversation and streams the LLM response tokens.
+     * Returns a Flow<String> of tokens that UI can collect and use onCompletion.
+     */
+    fun startNewConversation(
+        conversationId: String,
+        initialText: String
+    ): Flow<String> = flow {
+        // 1) persist conversation metadata
+        val timestamp = currentTimeLabel()
+        repo.createConversation(
+            Conversation(
+                id = conversationId,
+                title = "Chat at $timestamp",
+                lastMessage = "",
+                timestamp = timestamp
+            )
+        )
+        // 2) emit tokens from LLM stream
+        emitAll(
+            repo.sendMessage(conversationId, initialText)
+                .onEach { token -> _streamedTokens.emit(token) }
+        )
+    }.flowOn(Dispatchers.Default)
+
+    /**
+     * Sends a message to an existing conversation and streams tokens.
+     */
+    fun sendMessage(
+        conversationId: String,
+        text: String
+    ): Flow<String> =
+        repo.sendMessage(conversationId, text)
+            .onEach { token -> _streamedTokens.emit(token) }
+            .flowOn(Dispatchers.Default)
 
     fun deleteConversation(conversationId: String) = viewModelScope.launch {
         repo.deleteConversation(conversationId)

@@ -1,14 +1,22 @@
 package edu.upt.assistant.domain
 
-import android.util.Log
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import edu.upt.assistant.LlamaNative
+import edu.upt.assistant.TokenCallback
 import edu.upt.assistant.data.local.db.ConversationDao
 import edu.upt.assistant.data.local.db.ConversationEntity
 import edu.upt.assistant.data.local.db.MessageDao
 import edu.upt.assistant.data.local.db.MessageEntity
 import edu.upt.assistant.ui.screens.Conversation
 import edu.upt.assistant.ui.screens.Message
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -19,8 +27,24 @@ import javax.inject.Singleton
 @Singleton
 class ChatRepositoryImpl @Inject constructor(
     private val convDao: ConversationDao,
-    private val msgDao: MessageDao
+    private val msgDao: MessageDao,
+    @ApplicationContext private val appContext: Context
 ) : ChatRepository {
+
+    // Lazily initialize the native llama context
+    private val llamaCtx: Long by lazy {
+        val modelFile = File(appContext.filesDir, "models/gemma-3n-Q4_0.gguf")
+        if (!modelFile.exists()) {
+            appContext.assets.open("models/gemma-3n-Q4_0.gguf").use { input ->
+                modelFile.parentFile?.mkdirs()
+                modelFile.outputStream().use { output -> input.copyTo(output) }
+            }
+        }
+        LlamaNative.llamaCreate(modelFile.absolutePath)
+    }
+
+    // Keep a ConversationManager per conversation
+    private val managers = mutableMapOf<String, ConversationManager>()
 
     override fun getConversations(): Flow<List<Conversation>> =
         convDao.getAllConversations()
@@ -34,46 +58,58 @@ class ChatRepositoryImpl @Inject constructor(
         convDao.upsert(conversation.toEntity())
     }
 
-    override suspend fun sendMessage(conversationId: String, text: String) {
+    /**
+     * Streams tokens from the LLM. Saves user message immediately.
+     * Once streaming completes, saves the full assistant message.
+     */
+    override fun sendMessage(conversationId: String, text: String): Flow<String> = channelFlow {
         val now = System.currentTimeMillis()
-        // user message
-        val test = msgDao.insert(
+        // 1) persist user message
+        msgDao.insert(
             MessageEntity(
-            conversationId = conversationId,
-            text = text,
-            isUser = true,
-            timestamp = now
+                conversationId = conversationId,
+                text = text,
+                isUser = true,
+                timestamp = now
+            )
         )
+        convDao.upsert(ConversationEntity(conversationId, conversationId, text, now))
+
+        // 2) prepare prompt
+        val manager = managers.getOrPut(conversationId) { ConversationManager() }
+        manager.appendUser(text)
+        val prompt = manager.buildPrompt()
+
+        // 3) stream tokens
+        val builder = StringBuilder()
+        withContext(Dispatchers.Default) {
+            LlamaNative.llamaGenerateStream(
+                llamaCtx,
+                prompt,
+                /* maxTokens = */ 128,
+                TokenCallback { token ->
+                    trySend(token).isSuccess
+                    builder.append(token)
+                }
+            )
+        }
+
+        // 4) after streaming, persist assistant message
+        val reply = builder.toString().trim()
+        manager.appendAssistant(reply)
+        val replyTime = System.currentTimeMillis()
+        msgDao.insert(
+            MessageEntity(
+                conversationId = conversationId,
+                text = reply,
+                isUser = false,
+                timestamp = replyTime
+            )
         )
-        Log.d("ChatRepo", "Inserted user msg rowId=$test")
-        Log.d("ChatRepo", "Message count=${msgDao.messageCount()}")
-        // update conversation metadata
-        convDao.upsert(
-            ConversationEntity(
-            id = conversationId,
-            title = conversationId,      // or derive a nicer title
-            lastMessage = text,
-            timestamp = now
-        )
-        )
-        Log.d("ChatRepo", "Message count=${msgDao.messageCount()}")
-        // stubbed bot reply
-        val botReply = "Got it!"
-       val t2 = msgDao.insert(MessageEntity(
-            conversationId = conversationId,
-            text = botReply,
-            isUser = false,
-            timestamp = System.currentTimeMillis()
-        ))
-        Log.d("ChatRepo", "Message count=${msgDao.messageCount()}")
-        convDao.upsert(ConversationEntity(
-            id = conversationId,
-            title = conversationId,
-            lastMessage = botReply,
-            timestamp = System.currentTimeMillis()
-        ))
-        Log.d("ChatRepo", "Inserted user msg rowId=$t2")
-        Log.d("ChatRepo", "Message count=${msgDao.messageCount()}")
+        convDao.upsert(ConversationEntity(conversationId, conversationId, reply, replyTime))
+
+        close() // finish the flow
+        awaitClose { /* no-op */ }
     }
 
     override suspend fun deleteConversation(conversationId: String) {

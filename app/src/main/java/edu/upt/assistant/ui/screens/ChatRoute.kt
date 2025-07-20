@@ -13,8 +13,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -30,10 +28,6 @@ fun ChatRoute(
     navController: NavHostController,
     vm: ChatViewModel = hiltViewModel()
 ) {
-    // 1️⃣ collect the cold Flow from the VM
-    val messages by vm
-        .messagesFor(conversationId)
-        .collectAsState(initial = emptyList())
 
     Scaffold(
         topBar = {
@@ -58,11 +52,11 @@ fun ChatRoute(
         }
     ) { paddingValues ->
         ChatScreen(
+            conversationId = conversationId,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues),      // ← apply Scaffold insets
-            messages = messages,
-            onSend = { vm.sendMessage(conversationId, it) }
+                .padding(paddingValues),
+            vm
         )
     }
 }
