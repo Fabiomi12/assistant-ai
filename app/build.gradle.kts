@@ -62,6 +62,7 @@ dependencies {
 
     // Material Icons (extended set, including History & Settings)
     implementation(libs.androidx.material.icons.extended)
+    implementation(libs.material3)
 
     // Compose Navigation
     implementation(libs.androidx.navigation.compose)

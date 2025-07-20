@@ -6,8 +6,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -29,9 +27,6 @@ class MainActivity : ComponentActivity() {
 
                 // 2) Get your Hilt‑provided ViewModel
                 val vm: ChatViewModel = hiltViewModel()
-
-                // 3) Collect the current list of conversations
-                val conversations by vm.conversations.collectAsState()
 
                 // 4) Compose the NavGraph, wiring in VM state & actions
                 AppNavGraph(navController = navController)

@@ -41,13 +41,8 @@ fun AppNavGraph(
                 onStartChat     = { initial ->
                     // Generate the ID immediately:
                     val newId = UUID.randomUUID().toString()
-                    // Tell VM to create + send:
-                    // TODO fix message save
                     vm.startNewConversation(newId, initial)
-                    // Navigate with that same ID
-                    navController.navigate("chat/$newId") {
-                        popUpTo(NEW_CHAT_ROUTE) { inclusive = true }
-                    }
+                    navController.navigate("chat/$newId")
                 },
                 onHistoryClick  = { navController.navigate(HISTORY_ROUTE) },
                 onSettingsClick = { navController.navigate(SETTINGS_ROUTE) }
@@ -61,6 +56,9 @@ fun AppNavGraph(
                 onBack = { navController.popBackStack() },
                 onConversationClick = { convId ->
                     navController.navigate("chat/$convId")
+                },
+                onDeleteChat = {
+                    vm.deleteConversation(it)
                 }
             )
         }

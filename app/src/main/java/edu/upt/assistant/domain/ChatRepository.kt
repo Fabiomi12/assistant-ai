@@ -9,4 +9,5 @@ interface ChatRepository {
   fun getMessages(conversationId: String): Flow<List<Message>>
   suspend fun createConversation(conversation: Conversation)
   suspend fun sendMessage(conversationId: String, text: String)
+  suspend fun deleteConversation(conversationId: String)
 }

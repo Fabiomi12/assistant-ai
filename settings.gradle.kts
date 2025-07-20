@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Echo"
+rootProject.name = "Assitant"
 include(":app")

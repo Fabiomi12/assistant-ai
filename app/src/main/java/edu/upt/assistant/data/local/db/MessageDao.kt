@@ -11,6 +11,9 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE conversationId = :convId ORDER BY timestamp ASC")
     fun getMessagesFor(convId: String): Flow<List<MessageEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insert(message: MessageEntity)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insert(message: MessageEntity): Long
+
+    @Query("SELECT COUNT(*) FROM messages")
+    suspend fun messageCount(): Int
 }

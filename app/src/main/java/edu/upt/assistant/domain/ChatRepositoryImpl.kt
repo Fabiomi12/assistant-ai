@@ -1,5 +1,6 @@
 package edu.upt.assistant.domain
 
+import android.util.Log
 import edu.upt.assistant.data.local.db.ConversationDao
 import edu.upt.assistant.data.local.db.ConversationEntity
 import edu.upt.assistant.data.local.db.MessageDao
@@ -36,7 +37,7 @@ class ChatRepositoryImpl @Inject constructor(
     override suspend fun sendMessage(conversationId: String, text: String) {
         val now = System.currentTimeMillis()
         // user message
-        msgDao.insert(
+        val test = msgDao.insert(
             MessageEntity(
             conversationId = conversationId,
             text = text,
@@ -44,6 +45,8 @@ class ChatRepositoryImpl @Inject constructor(
             timestamp = now
         )
         )
+        Log.d("ChatRepo", "Inserted user msg rowId=$test")
+        Log.d("ChatRepo", "Message count=${msgDao.messageCount()}")
         // update conversation metadata
         convDao.upsert(
             ConversationEntity(
@@ -53,20 +56,28 @@ class ChatRepositoryImpl @Inject constructor(
             timestamp = now
         )
         )
+        Log.d("ChatRepo", "Message count=${msgDao.messageCount()}")
         // stubbed bot reply
         val botReply = "Got it!"
-        msgDao.insert(MessageEntity(
+       val t2 = msgDao.insert(MessageEntity(
             conversationId = conversationId,
             text = botReply,
             isUser = false,
             timestamp = System.currentTimeMillis()
         ))
+        Log.d("ChatRepo", "Message count=${msgDao.messageCount()}")
         convDao.upsert(ConversationEntity(
             id = conversationId,
             title = conversationId,
             lastMessage = botReply,
             timestamp = System.currentTimeMillis()
         ))
+        Log.d("ChatRepo", "Inserted user msg rowId=$t2")
+        Log.d("ChatRepo", "Message count=${msgDao.messageCount()}")
+    }
+
+    override suspend fun deleteConversation(conversationId: String) {
+        convDao.deleteById(conversationId)
     }
 
     // -- Helpers to convert between Entity ⇄ Domain --
