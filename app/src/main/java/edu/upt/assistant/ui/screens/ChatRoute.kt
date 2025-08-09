@@ -26,6 +26,7 @@ import edu.upt.assistant.ui.navigation.SETTINGS_ROUTE
 fun ChatRoute(
     conversationId: String,
     navController: NavHostController,
+    initialMessage: String? = null,
     vm: ChatViewModel = hiltViewModel()
 ) {
 
@@ -53,6 +54,7 @@ fun ChatRoute(
     ) { paddingValues ->
         ChatScreen(
             conversationId = conversationId,
+            initialMessage = initialMessage,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),

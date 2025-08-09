@@ -114,7 +114,7 @@ fun ModelDownloadScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "This app requires downloading an AI model (~4GB) for offline chat functionality.",
+                        text = "This app requires downloading an AI model (~2GB) for offline chat functionality.",
                         textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.bodyLarge
                     )

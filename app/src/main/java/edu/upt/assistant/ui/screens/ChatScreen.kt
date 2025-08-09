@@ -1,5 +1,6 @@
 package edu.upt.assistant.ui.screens
 
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,10 +30,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import edu.upt.assistant.domain.ChatViewModel
-import kotlinx.coroutines.flow.onCompletion
 
 // Simple data model for a chat message
 data class Message(val text: String, val isUser: Boolean)
@@ -41,51 +42,82 @@ data class Message(val text: String, val isUser: Boolean)
 @Composable
 fun ChatScreen(
     conversationId: String,
+    initialMessage: String? = null,
     modifier: Modifier = Modifier,
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
-    // 1) Collect your persisted history
+    Log.d("ChatScreen", "ChatScreen created for conversation: $conversationId, initial: $initialMessage")
+
+    // 1) Collect persisted messages from database
     val messages by viewModel.messagesFor(conversationId)
         .collectAsState(initial = emptyList())
 
-    // 2) Hold the partial “typing” reply locally
+    // 2) Collect streamed tokens from SharedFlow
+    val streamedTokens by viewModel.streamedTokens.collectAsState(initial = "")
+
+    // 3) Track which conversation is currently streaming
+    val currentStreamingConversation by viewModel.currentStreamingConversation
+        .collectAsState(initial = null)
+
+    // 4) Local state for partial reply and input
     var partialReply by remember { mutableStateOf("") }
+    var inputText by remember { mutableStateOf("") }
+    var hasProcessedInitialMessage by remember { mutableStateOf(false) }
 
-    // 3) A one‑off trigger whenever we send a new message
-    var sendTrigger by remember { mutableStateOf<String?>(null) }
-
-    // 4) Kick off the streaming when sendTrigger changes
-    LaunchedEffect(sendTrigger) {
-        sendTrigger?.let { text ->
-            partialReply = ""
-            viewModel
-                .sendMessage(conversationId, text)        // returns Flow<String>
-                .onCompletion {                           // this works here
-                    /* optionally clear or finalize */
-                }
-                .collect { token ->
-                    partialReply += token                   // accumulate tokens
-                }
-            sendTrigger = null                          // reset trigger
+    // 5) Collect streamed tokens and accumulate them
+    LaunchedEffect(streamedTokens, currentStreamingConversation) {
+        if (currentStreamingConversation == conversationId && streamedTokens.isNotBlank()) {
+            Log.d("ChatScreen", "Received token for $conversationId: $streamedTokens")
+            partialReply += streamedTokens
         }
     }
 
-    var inputText by remember { mutableStateOf("") }
+    // 6) Clear partial reply when streaming stops
+    LaunchedEffect(currentStreamingConversation) {
+        if (currentStreamingConversation != conversationId) {
+            Log.d("ChatScreen", "Streaming stopped for $conversationId, clearing partial reply")
+            partialReply = ""
+        }
+    }
+
+    // 7) Handle initial message
+    LaunchedEffect(initialMessage, conversationId) {
+        if (!initialMessage.isNullOrBlank() && !hasProcessedInitialMessage) {
+            Log.d("ChatScreen", "Processing initial message: $initialMessage")
+            partialReply = ""
+            viewModel.startNewConversation(conversationId, initialMessage)
+            hasProcessedInitialMessage = true
+        }
+    }
+
     val listState = rememberLazyListState()
 
-    // 5) Auto‑scroll whenever history or partialReply changes
+    // 8) Auto-scroll when messages or partial reply changes
     LaunchedEffect(messages.size, partialReply) {
-        val lastIndex = messages.size + if (partialReply.isNotEmpty()) 1 else 0
-        if (lastIndex > 0) listState.animateScrollToItem(lastIndex - 1)
+        val totalItems = messages.size + if (partialReply.isNotEmpty()) 1 else 0
+        if (totalItems > 0) {
+            listState.animateScrollToItem(totalItems - 1)
+        }
     }
 
     Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
+        // Debug info
+        Text(
+            text = "Conv: $conversationId | Messages: ${messages.size} | Streaming: ${currentStreamingConversation == conversationId}",
+            color = Color.Gray,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+
+        // Messages display
         LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
+            // Show persisted messages
             items(messages) { msg ->
                 MessageBubble(Message(msg.text, msg.isUser))
                 Spacer(Modifier.height(8.dp))
             }
-            if (partialReply.isNotEmpty()) {
+
+            // Show streaming partial reply
+            if (partialReply.isNotEmpty() && currentStreamingConversation == conversationId) {
                 item {
                     MessageBubble(Message(partialReply, isUser = false))
                     Spacer(Modifier.height(8.dp))
@@ -93,30 +125,38 @@ fun ChatScreen(
             }
         }
 
+        // Input section
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextField(
-                value = inputText, onValueChange = { inputText = it }, modifier = Modifier.weight(1f),
-                placeholder = { Text("Type a message…") }
+                value = inputText,
+                onValueChange = { inputText = it },
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("Type a message…") },
+                enabled = currentStreamingConversation != conversationId // Disable while streaming
             )
-            IconButton(onClick = {
-                if (inputText.isNotBlank()) {
-                    sendTrigger = inputText.trim()   // this kicks off LaunchedEffect
-                    inputText = ""
-                }
-            }) {
+
+            IconButton(
+                onClick = {
+                    if (inputText.isNotBlank() && currentStreamingConversation != conversationId) {
+                        val messageToSend = inputText.trim()
+                        inputText = ""
+                        partialReply = ""
+
+                        Log.d("ChatScreen", "Sending message: $messageToSend")
+                        viewModel.sendMessage(conversationId, messageToSend)
+                    }
+                },
+                enabled = inputText.isNotBlank() && currentStreamingConversation != conversationId
+            ) {
                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
             }
         }
     }
 }
 
-
 @Composable
 fun MessageBubble(message: Message) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-    ) {
+    Box(modifier = Modifier.fillMaxWidth()) {
         val alignment = if (message.isUser) Alignment.CenterEnd else Alignment.CenterStart
         Card(
             modifier = Modifier

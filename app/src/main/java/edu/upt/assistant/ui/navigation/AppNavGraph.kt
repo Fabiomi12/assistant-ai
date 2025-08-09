@@ -5,9 +5,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import edu.upt.assistant.domain.ChatRepositoryImpl
+import androidx.navigation.navArgument
 import edu.upt.assistant.domain.ChatViewModel
 import edu.upt.assistant.domain.SettingsViewModel
 import edu.upt.assistant.ui.screens.ChatRoute
@@ -17,7 +18,6 @@ import edu.upt.assistant.ui.screens.NewChatScreen
 import edu.upt.assistant.ui.screens.SettingsScreen
 import edu.upt.assistant.ui.screens.SetupRoute
 import java.util.UUID
-import javax.inject.Inject
 
 @Composable
 fun AppNavGraph(
@@ -27,17 +27,13 @@ fun AppNavGraph(
     val vm: ChatViewModel = hiltViewModel()
     val settingsVm: SettingsViewModel = hiltViewModel()
 
-    // For checking model status, we need access to the repository
-    // You can either inject ChatRepositoryImpl directly or create a method in ChatViewModel
-    // For now, let's add a method to ChatViewModel to check model status
-
     // collect state reactively
     val conversations by vm.conversations.collectAsState()
     val username by settingsVm.username.collectAsState(initial = "")
     val notifications by settingsVm.notificationsEnabled.collectAsState(initial = false)
     val setupDone by settingsVm.setupDone.collectAsState(initial = false)
 
-    // Check if model is ready (you'll need to add this method to ChatViewModel)
+    // Check if model is ready
     val isModelReady by vm.isModelReady.collectAsState(initial = false)
 
     // Determine start route based on setup and model status
@@ -72,6 +68,7 @@ fun AppNavGraph(
         composable(MODEL_DOWNLOAD_ROUTE) {
             ModelDownloadScreen(
                 onModelReady = {
+                    vm.refreshModelStatus() // Refresh the model status
                     navController.navigate(NEW_CHAT_ROUTE) {
                         popUpTo(MODEL_DOWNLOAD_ROUTE) { inclusive = true }
                     }
@@ -84,10 +81,17 @@ fun AppNavGraph(
             NewChatScreen(
                 username        = username,
                 onStartChat     = { initial ->
-                    // Generate the ID immediately:
-                    val newId = UUID.randomUUID().toString()
-                    vm.startNewConversation(newId, initial)
-                    navController.navigate("chat/$newId")
+                    try {
+                        // Generate the ID immediately:
+                        val newId = UUID.randomUUID().toString()
+
+                        // Navigate to chat screen with initial message as argument
+                        navController.navigate("chat/$newId?initialMessage=${java.net.URLEncoder.encode(initial, "UTF-8")}")
+
+                    } catch (e: Exception) {
+                        // If model not ready, go to download screen
+                        navController.navigate(MODEL_DOWNLOAD_ROUTE)
+                    }
                 },
                 onHistoryClick  = { navController.navigate(HISTORY_ROUTE) },
                 onSettingsClick = { navController.navigate(SETTINGS_ROUTE) }
@@ -102,31 +106,43 @@ fun AppNavGraph(
                 onConversationClick = { convId ->
                     navController.navigate("chat/$convId")
                 },
-                onDeleteChat = {
-                    vm.deleteConversation(it)
+                onDeleteChat = { convId ->
+                    vm.deleteConversation(convId)
                 }
             )
         }
 
         // 4) Chat Screen (reactive!)
-        composable(CHAT_ROUTE) { backStackEntry ->
-            val convId = backStackEntry.arguments!!.getString("conversationId")!!
-
-            ChatRoute(
-                conversationId = convId,
-                navController   = navController,
+        composable(
+            route = CHAT_ROUTE,
+            arguments = listOf(
+                navArgument("conversationId") { type = NavType.StringType },
+                navArgument("initialMessage") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
             )
+        ) { backStackEntry ->
+            val convId = backStackEntry.arguments?.getString("conversationId")
+            val initialMessage = backStackEntry.arguments?.getString("initialMessage")
+
+            if (convId != null) {
+                ChatRoute(
+                    conversationId = convId,
+                    navController = navController,
+                    initialMessage = initialMessage?.let {
+                        java.net.URLDecoder.decode(it, "UTF-8")
+                    }
+                )
+            }
         }
 
         // 5) Settings Screen
         composable(SETTINGS_ROUTE) {
-            val settingsVm: SettingsViewModel = hiltViewModel()
-            val username by settingsVm.username.collectAsState()
-            val notificationsEnabled by settingsVm.notificationsEnabled.collectAsState()
-
             SettingsScreen(
                 username = username,
-                notificationsEnabled = notificationsEnabled,
+                notificationsEnabled = notifications,
                 onUserNameChange = { settingsVm.setUsername(it) },
                 onNotificationsToggle = { settingsVm.setNotificationsEnabled(it) },
                 onBack = { navController.popBackStack() },

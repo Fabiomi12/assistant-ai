@@ -1,6 +1,7 @@
 package edu.upt.assistant.domain
 
 import android.content.Context
+import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import edu.upt.assistant.LlamaNative
 import edu.upt.assistant.TokenCallback
@@ -31,17 +32,25 @@ class ChatRepositoryImpl @Inject constructor(
     @ApplicationContext private val appContext: Context
 ) : ChatRepository {
 
+    init {
+        Log.d("ChatRepository", "ChatRepositoryImpl created")
+    }
+
     // Lazily initialize the native llama context
     private var _llamaCtx: Long? = null
-    private fun getLlamaContext(): Long {
+    private suspend fun getLlamaContext(): Long {
         return _llamaCtx ?: run {
+            Log.d("ChatRepository", "Initializing llama context")
             // Ensure model is downloaded
             if (!modelDownloadManager.isModelAvailable()) {
+                Log.e("ChatRepository", "Model not available")
                 throw IllegalStateException("Model not available. Please download the model first.")
             }
 
             val modelPath = modelDownloadManager.getModelPath()
+            Log.d("ChatRepository", "Model path: $modelPath")
             val ctx = LlamaNative.llamaCreate(modelPath)
+            Log.d("ChatRepository", "Llama context created: $ctx")
             _llamaCtx = ctx
             ctx
         }
@@ -50,15 +59,26 @@ class ChatRepositoryImpl @Inject constructor(
     // Keep a ConversationManager per conversation
     private val managers = mutableMapOf<String, ConversationManager>()
 
-    override fun getConversations(): Flow<List<Conversation>> =
-        convDao.getAllConversations()
-            .map { list -> list.map { it.toDomain() } }
+    override fun getConversations(): Flow<List<Conversation>> {
+        Log.d("ChatRepository", "Getting conversations")
+        return convDao.getAllConversations()
+            .map { list ->
+                Log.d("ChatRepository", "Found ${list.size} conversations")
+                list.map { it.toDomain() }
+            }
+    }
 
-    override fun getMessages(conversationId: String): Flow<List<Message>> =
-        msgDao.getMessagesFor(conversationId)
-            .map { list -> list.map { it.toDomain() } }
+    override fun getMessages(conversationId: String): Flow<List<Message>> {
+        Log.d("ChatRepository", "Getting messages for conversation: $conversationId")
+        return msgDao.getMessagesFor(conversationId)
+            .map { list ->
+                Log.d("ChatRepository", "Found ${list.size} messages for $conversationId")
+                list.map { it.toDomain() }
+            }
+    }
 
     override suspend fun createConversation(conversation: Conversation) {
+        Log.d("ChatRepository", "Creating conversation: ${conversation.id}")
         convDao.upsert(conversation.toEntity())
     }
 
@@ -67,62 +87,90 @@ class ChatRepositoryImpl @Inject constructor(
      * Once streaming completes, saves the full assistant message.
      */
     override fun sendMessage(conversationId: String, text: String): Flow<String> = channelFlow {
-        val ctx = getLlamaContext() // This will throw if model isn't available
+        Log.d("ChatRepository", "Sending message to $conversationId: $text")
 
-        val now = System.currentTimeMillis()
-        // 1) persist user message
-        msgDao.insert(
-            MessageEntity(
-                conversationId = conversationId,
-                text = text,
-                isUser = true,
-                timestamp = now
-            )
-        )
-        convDao.upsert(ConversationEntity(conversationId, conversationId, text, now))
-
-        // 2) prepare prompt
-        val manager = managers.getOrPut(conversationId) { ConversationManager() }
-        manager.appendUser(text)
-        val prompt = manager.buildPrompt()
-
-        // 3) stream tokens
-        val builder = StringBuilder()
-        withContext(Dispatchers.Default) {
-            LlamaNative.llamaGenerateStream(
-                ctx,
-                prompt,
-                /* maxTokens = */ 128,
-                TokenCallback { token ->
-                    trySend(token).isSuccess
-                    builder.append(token)
-                }
-            )
+        if (!modelDownloadManager.isModelAvailable()) {
+            Log.e("ChatRepository", "Model not available when sending message")
+            throw IllegalStateException("Model not available. Please download the model first.")
         }
 
-        // 4) after streaming, persist assistant message
-        val reply = builder.toString().trim()
-        manager.appendAssistant(reply)
-        val replyTime = System.currentTimeMillis()
-        msgDao.insert(
-            MessageEntity(
-                conversationId = conversationId,
-                text = reply,
-                isUser = false,
-                timestamp = replyTime
+        try {
+            val ctx = getLlamaContext()
+            Log.d("ChatRepository", "Got llama context: $ctx")
+
+            val now = System.currentTimeMillis()
+            // 1) persist user message
+            msgDao.insert(
+                MessageEntity(
+                    conversationId = conversationId,
+                    text = text,
+                    isUser = true,
+                    timestamp = now
+                )
             )
-        )
-        convDao.upsert(ConversationEntity(conversationId, conversationId, reply, replyTime))
+            convDao.upsert(ConversationEntity(conversationId, conversationId, text, now))
+            Log.d("ChatRepository", "User message saved")
+
+            // 2) prepare prompt
+            val manager = managers.getOrPut(conversationId) { ConversationManager() }
+            manager.appendUser(text)
+            val prompt = manager.buildPrompt()
+            Log.d("ChatRepository", "Prompt prepared: ${prompt.take(100)}...")
+
+            // 3) stream tokens
+            val builder = StringBuilder()
+            withContext(Dispatchers.Default) {
+                Log.d("ChatRepository", "Starting token generation")
+                LlamaNative.llamaGenerateStream(
+                    ctx,
+                    prompt,
+                    /* maxTokens = */ 128,
+                    TokenCallback { token ->
+                        Log.d("ChatRepository", "Generated token: $token")
+                        val success = trySend(token).isSuccess
+                        if (success) {
+                            builder.append(token)
+                        }
+                        success
+                    }
+                )
+            }
+
+            // 4) after streaming, persist assistant message
+            val reply = builder.toString().trim()
+            Log.d("ChatRepository", "Complete reply: $reply")
+            manager.appendAssistant(reply)
+            val replyTime = System.currentTimeMillis()
+            msgDao.insert(
+                MessageEntity(
+                    conversationId = conversationId,
+                    text = reply,
+                    isUser = false,
+                    timestamp = replyTime
+                )
+            )
+            convDao.upsert(ConversationEntity(conversationId, conversationId, reply, replyTime))
+            Log.d("ChatRepository", "Assistant message saved")
+
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error in sendMessage", e)
+            throw e
+        }
 
         close() // finish the flow
         awaitClose { /* no-op */ }
     }
 
     override suspend fun deleteConversation(conversationId: String) {
+        Log.d("ChatRepository", "Deleting conversation: $conversationId")
         convDao.deleteById(conversationId)
     }
 
-    override fun isModelReady(): Boolean = modelDownloadManager.isModelAvailable()
+    override fun isModelReady(): Boolean {
+        val isReady = modelDownloadManager.isModelAvailable()
+        Log.d("ChatRepository", "Model ready check: $isReady")
+        return isReady
+    }
 
     fun getDownloadManager(): ModelDownloadManager = modelDownloadManager
 
