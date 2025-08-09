@@ -1,5 +1,3 @@
-import com.android.build.api.dsl.AaptOptions
-import com.android.build.api.dsl.AndroidResources
 
 plugins {
     alias(libs.plugins.android.application)
@@ -25,7 +23,7 @@ android {
 
         ndk {
             // only build for the ABIs you intend to support
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += listOf("x86_64")
         }
 
         externalNativeBuild {
@@ -42,11 +40,6 @@ android {
         getByName("main") {
             assets.srcDirs("src/main/assets")
         }
-    }
-
-    // Avoid Zip32 overflow on large .gguf model files by not compressing them in the APK
-    fun AndroidResources.() {
-        noCompress += listOf("gguf")
     }
 
     externalNativeBuild {

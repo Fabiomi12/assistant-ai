@@ -10,5 +10,5 @@ interface ChatRepository {
   suspend fun createConversation(conversation: Conversation)
   fun sendMessage(conversationId: String, text: String): Flow<String>
   suspend fun deleteConversation(conversationId: String)
-
+  fun isModelReady(): Boolean
 }

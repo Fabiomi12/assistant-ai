@@ -8,10 +8,12 @@ import edu.upt.assistant.ui.screens.Message
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -25,7 +27,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
-    private val repo: ChatRepository
+    private val repo: ChatRepository,
+    private val chatRepoImpl: ChatRepositoryImpl
 ) : ViewModel() {
 
     val conversations: StateFlow<List<Conversation>> =
@@ -34,6 +37,21 @@ class ChatViewModel @Inject constructor(
             SharingStarted.WhileSubscribed(5000),
             emptyList()
         )
+
+    // Model readiness state
+    private val _isModelReady = MutableStateFlow(chatRepoImpl.isModelReady())
+    val isModelReady: StateFlow<Boolean> = _isModelReady.asStateFlow()
+
+    init {
+        // Check model status periodically or when needed
+        refreshModelStatus()
+    }
+
+    fun refreshModelStatus() {
+        _isModelReady.value = chatRepoImpl.isModelReady()
+    }
+
+    fun isModelReadySync(): Boolean = chatRepoImpl.isModelReady()
 
     fun messagesFor(conversationId: String): Flow<List<Message>> =
         repo.getMessages(conversationId)
@@ -50,6 +68,11 @@ class ChatViewModel @Inject constructor(
         conversationId: String,
         initialText: String
     ): Flow<String> = flow {
+        // Check if model is ready before starting
+        if (!chatRepoImpl.isModelReady()) {
+            throw IllegalStateException("Model not ready. Please download the model first.")
+        }
+
         // 1) persist conversation metadata
         val timestamp = currentTimeLabel()
         repo.createConversation(
@@ -87,4 +110,3 @@ class ChatViewModel @Inject constructor(
         SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
             .format(Date(System.currentTimeMillis()))
 }
-

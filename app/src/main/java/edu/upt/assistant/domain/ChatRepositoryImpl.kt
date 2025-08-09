@@ -16,7 +16,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -28,19 +27,24 @@ import javax.inject.Singleton
 class ChatRepositoryImpl @Inject constructor(
     private val convDao: ConversationDao,
     private val msgDao: MessageDao,
+    private val modelDownloadManager: ModelDownloadManager,
     @ApplicationContext private val appContext: Context
 ) : ChatRepository {
 
     // Lazily initialize the native llama context
-    private val llamaCtx: Long by lazy {
-        val modelFile = File(appContext.filesDir, "models/gemma-3n-Q4_0.gguf")
-        if (!modelFile.exists()) {
-            appContext.assets.open("models/gemma-3n-Q4_0.gguf").use { input ->
-                modelFile.parentFile?.mkdirs()
-                modelFile.outputStream().use { output -> input.copyTo(output) }
+    private var _llamaCtx: Long? = null
+    private fun getLlamaContext(): Long {
+        return _llamaCtx ?: run {
+            // Ensure model is downloaded
+            if (!modelDownloadManager.isModelAvailable()) {
+                throw IllegalStateException("Model not available. Please download the model first.")
             }
+
+            val modelPath = modelDownloadManager.getModelPath()
+            val ctx = LlamaNative.llamaCreate(modelPath)
+            _llamaCtx = ctx
+            ctx
         }
-        LlamaNative.llamaCreate(modelFile.absolutePath)
     }
 
     // Keep a ConversationManager per conversation
@@ -63,6 +67,8 @@ class ChatRepositoryImpl @Inject constructor(
      * Once streaming completes, saves the full assistant message.
      */
     override fun sendMessage(conversationId: String, text: String): Flow<String> = channelFlow {
+        val ctx = getLlamaContext() // This will throw if model isn't available
+
         val now = System.currentTimeMillis()
         // 1) persist user message
         msgDao.insert(
@@ -84,7 +90,7 @@ class ChatRepositoryImpl @Inject constructor(
         val builder = StringBuilder()
         withContext(Dispatchers.Default) {
             LlamaNative.llamaGenerateStream(
-                llamaCtx,
+                ctx,
                 prompt,
                 /* maxTokens = */ 128,
                 TokenCallback { token ->
@@ -115,6 +121,10 @@ class ChatRepositoryImpl @Inject constructor(
     override suspend fun deleteConversation(conversationId: String) {
         convDao.deleteById(conversationId)
     }
+
+    override fun isModelReady(): Boolean = modelDownloadManager.isModelAvailable()
+
+    fun getDownloadManager(): ModelDownloadManager = modelDownloadManager
 
     // -- Helpers to convert between Entity ⇄ Domain --
     private fun ConversationEntity.toDomain() =
