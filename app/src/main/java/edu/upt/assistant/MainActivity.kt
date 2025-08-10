@@ -25,9 +25,6 @@ class MainActivity : ComponentActivity() {
                 // 1) NavController for all navigation
                 val navController = rememberNavController()
 
-                // 2) Get your Hilt‑provided ViewModel
-                val vm: ChatViewModel = hiltViewModel()
-
                 // 4) Compose the NavGraph, wiring in VM state & actions
                 AppNavGraph(navController = navController)
             }

@@ -20,6 +20,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,9 +37,17 @@ data class Message(val text: String, val isUser: Boolean)
 fun ChatScreen(
     modifier: Modifier = Modifier,
     messages: List<Message>,
-    onSend: (String) -> Unit
+    onSend: (String) -> Unit,
+    initialMessage: String? = null
 ) {
     var inputText by remember { mutableStateOf("") }
+
+    // Set the initial message when the screen is first composed
+    LaunchedEffect(initialMessage) {
+        if (initialMessage != null && inputText.isEmpty()) {
+            inputText = initialMessage
+        }
+    }
 
     Column(
         modifier = modifier

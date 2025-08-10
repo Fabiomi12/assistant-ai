@@ -28,7 +28,8 @@ import edu.upt.assistant.ui.navigation.SETTINGS_ROUTE
 fun ChatRoute(
     conversationId: String,
     navController: NavHostController,
-    vm: ChatViewModel = hiltViewModel()
+    vm: ChatViewModel = hiltViewModel(),
+    initialMessage: String? = null
 ) {
     // 1️⃣ collect the cold Flow from the VM
     val messages by vm
@@ -62,7 +63,8 @@ fun ChatRoute(
                 .fillMaxSize()
                 .padding(paddingValues),      // ← apply Scaffold insets
             messages = messages,
-            onSend = { vm.sendMessage(conversationId, it) }
+            onSend = { vm.sendMessage(conversationId, it) },
+            initialMessage = initialMessage
         )
     }
 }
