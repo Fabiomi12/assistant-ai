@@ -21,6 +21,7 @@ import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.lang.Runtime
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -49,7 +50,10 @@ class ChatRepositoryImpl @Inject constructor(
 
             val modelPath = modelDownloadManager.getModelPath()
             Log.d("ChatRepository", "Model path: $modelPath")
-            val ctx = LlamaNative.llamaCreate(modelPath)
+            val ctx = LlamaNative.llamaCreate(
+                modelPath,
+                Runtime.getRuntime().availableProcessors()
+            )
             if (ctx == 0L) {
                 Log.e("ChatRepository", "Failed to create llama context")
                 throw IllegalStateException("Failed to create llama context")
