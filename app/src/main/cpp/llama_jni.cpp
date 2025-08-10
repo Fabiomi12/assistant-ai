@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <android/log.h>
+#include <thread>
 #include "llama.h"
 
 #define LOG_TAG "LLAMA_JNI"
@@ -17,7 +18,7 @@ extern "C" {
 // -----------------------------
 JNIEXPORT jlong JNICALL
 Java_edu_upt_assistant_LlamaNative_llamaCreate(
-        JNIEnv* env, jclass, jstring modelPathJ
+        JNIEnv* env, jclass, jstring modelPathJ, jint nThreads
 ) {
     const char* path = env->GetStringUTFChars(modelPathJ, nullptr);
     llama_model_params mparams = llama_model_default_params();
@@ -30,7 +31,12 @@ Java_edu_upt_assistant_LlamaNative_llamaCreate(
     }
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = 2048;
-    cparams.n_threads = 4;
+    int threads = nThreads > 0 ? nThreads : static_cast<int>(std::thread::hardware_concurrency());
+    if (threads <= 0) {
+        threads = 1;
+    }
+    cparams.n_threads = threads;
+    LOGI("Using %d threads", threads);
     llama_context* ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
         llama_model_free(model);
