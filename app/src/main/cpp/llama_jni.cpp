@@ -105,7 +105,6 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerate(
     if (llama_decode(ctx, batch) != 0) {
         LOGE("Initial decode failed");
     }
-    llama_batch_free(batch);
 
     // Prepare output
     std::string out;
@@ -133,10 +132,8 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerate(
         llama_batch b2 = llama_batch_get_one(&tok, 1);
         if (llama_decode(ctx, b2) != 0) {
             LOGE("Decode token failed");
-            llama_batch_free(b2);
             break;
         }
-        llama_batch_free(b2);
     }
 
     return env->NewStringUTF(out.c_str());
@@ -182,10 +179,8 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(
     llama_batch batch = llama_batch_get_one(tokens.data(), ntok);
     if (llama_decode(ctx, batch) != 0) {
         LOGE("Initial decode failed");
-        llama_batch_free(batch);
         return;
     }
-    llama_batch_free(batch);
 
     // Prepare Java callback method
     jclass cbCls = env->GetObjectClass(callback);
@@ -214,10 +209,8 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(
         llama_batch b2 = llama_batch_get_one(&tok, 1);
         if (llama_decode(ctx, b2) != 0) {
             LOGE("Decode token failed");
-            llama_batch_free(b2);
             break;
         }
-        llama_batch_free(b2);
     }
 }
 
