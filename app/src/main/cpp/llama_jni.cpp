@@ -32,8 +32,8 @@ Java_edu_upt_assistant_LlamaNative_llamaCreate(
     cparams.n_ctx = 2048;
     cparams.n_threads = 4;
     llama_context* ctx = llama_init_from_model(model, cparams);
-    llama_model_free(model);
     if (!ctx) {
+        llama_model_free(model);
         jclass ioe = env->FindClass("java/io/IOException");
         env->ThrowNew(ioe, "Failed to init context");
         return 0;
@@ -48,7 +48,11 @@ Java_edu_upt_assistant_LlamaNative_llamaFree(
 ) {
     auto* ctx = reinterpret_cast<llama_context*>(ctxPtr);
     if (ctx) {
+        const llama_model* model = llama_get_model(ctx);
         llama_free(ctx);
+        if (model) {
+            llama_model_free(const_cast<llama_model*>(model));
+        }
         LOGI("Context freed");
     }
 }
@@ -70,7 +74,17 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerate(
     // Get prompt text
     const char* prompt = env->GetStringUTFChars(promptJ, nullptr);
     const llama_model* model = llama_get_model(ctx);
+    if (!model) {
+        jclass exc = env->FindClass("java/lang/IllegalStateException");
+        env->ThrowNew(exc, "Model not initialized");
+        return nullptr;
+    }
     const llama_vocab* vocab = llama_model_get_vocab(model);
+    if (!vocab) {
+        jclass exc = env->FindClass("java/lang/IllegalStateException");
+        env->ThrowNew(exc, "Vocab not initialized");
+        return nullptr;
+    }
 
     // Tokenize prompt
     std::vector<llama_token> tokens(4096);
@@ -142,7 +156,15 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(
 
     const char* prompt = env->GetStringUTFChars(promptJ, nullptr);
     const llama_model* model = llama_get_model(ctx);
+    if (!model) {
+        env->ReleaseStringUTFChars(promptJ, prompt);
+        return;
+    }
     const llama_vocab* vocab = llama_model_get_vocab(model);
+    if (!vocab) {
+        env->ReleaseStringUTFChars(promptJ, prompt);
+        return;
+    }
 
     // Tokenize and decode prompt
     std::vector<llama_token> tokens(4096);
