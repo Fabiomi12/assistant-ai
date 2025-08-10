@@ -50,6 +50,10 @@ class ChatRepositoryImpl @Inject constructor(
             val modelPath = modelDownloadManager.getModelPath()
             Log.d("ChatRepository", "Model path: $modelPath")
             val ctx = LlamaNative.llamaCreate(modelPath)
+            if (ctx == 0L) {
+                Log.e("ChatRepository", "Failed to create llama context")
+                throw IllegalStateException("Failed to create llama context")
+            }
             Log.d("ChatRepository", "Llama context created: $ctx")
             _llamaCtx = ctx
             ctx
