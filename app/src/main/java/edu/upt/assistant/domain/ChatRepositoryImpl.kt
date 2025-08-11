@@ -21,6 +21,7 @@ import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.lang.Runtime
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -49,7 +50,14 @@ class ChatRepositoryImpl @Inject constructor(
 
             val modelPath = modelDownloadManager.getModelPath()
             Log.d("ChatRepository", "Model path: $modelPath")
-            val ctx = LlamaNative.llamaCreate(modelPath)
+            val ctx = LlamaNative.llamaCreate(
+                modelPath,
+                Runtime.getRuntime().availableProcessors()
+            )
+            if (ctx == 0L) {
+                Log.e("ChatRepository", "Failed to create llama context")
+                throw IllegalStateException("Failed to create llama context")
+            }
             Log.d("ChatRepository", "Llama context created: $ctx")
             _llamaCtx = ctx
             ctx
@@ -137,19 +145,20 @@ class ChatRepositoryImpl @Inject constructor(
             }
 
             // 4) after streaming, persist assistant message
-            val reply = builder.toString().trim()
-            Log.d("ChatRepository", "Complete reply: $reply")
-            manager.appendAssistant(reply)
+            val reply = builder.toString()
+            val cleanReply = reply.trim()
+            Log.d("ChatRepository", "Complete reply: $cleanReply")
+            manager.appendAssistant(cleanReply)
             val replyTime = System.currentTimeMillis()
             msgDao.insert(
                 MessageEntity(
                     conversationId = conversationId,
-                    text = reply,
+                    text = cleanReply,
                     isUser = false,
                     timestamp = replyTime
                 )
             )
-            convDao.upsert(ConversationEntity(conversationId, conversationId, reply, replyTime))
+            convDao.upsert(ConversationEntity(conversationId, conversationId, cleanReply, replyTime))
             Log.d("ChatRepository", "Assistant message saved")
 
         } catch (e: Exception) {

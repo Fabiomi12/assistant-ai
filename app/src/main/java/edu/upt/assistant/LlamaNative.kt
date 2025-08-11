@@ -7,7 +7,7 @@ fun interface TokenCallback {
 object LlamaNative {
   init { System.loadLibrary("llama_jni") }
 
-  @JvmStatic external fun llamaCreate(modelPath: String): Long
+  @JvmStatic external fun llamaCreate(modelPath: String, nThreads: Int): Long
   @JvmStatic external fun llamaGenerate(ctxPtr: Long, prompt: String, maxTokens: Int): String
   @JvmStatic external fun llamaGenerateStream(
     ctxPtr: Long,
