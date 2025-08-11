@@ -13,8 +13,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -35,6 +39,26 @@ fun ChatRoute(
     val messages by vm
         .messagesFor(conversationId)
         .collectAsState(initial = emptyList())
+
+    var streamingReply by remember { mutableStateOf("") }
+    val currentStreaming by vm.currentStreamingConversation.collectAsState()
+
+    LaunchedEffect(currentStreaming) {
+        if (currentStreaming == conversationId) {
+            streamingReply = ""
+            vm.streamedTokens.collect { token ->
+                streamingReply += token
+            }
+        } else {
+            streamingReply = ""
+        }
+    }
+
+    val displayedMessages = if (streamingReply.isNotEmpty()) {
+        messages + Message(streamingReply, isUser = false)
+    } else {
+        messages
+    }
 
     Scaffold(
         topBar = {
@@ -62,7 +86,7 @@ fun ChatRoute(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),      // ← apply Scaffold insets
-            messages = messages,
+            messages = displayedMessages,
             onSend = { vm.sendMessage(conversationId, it) },
             initialMessage = initialMessage
         )
