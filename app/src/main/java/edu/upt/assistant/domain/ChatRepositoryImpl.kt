@@ -151,19 +151,20 @@ class ChatRepositoryImpl @Inject constructor(
             }
 
             // 4) after streaming, persist assistant message
-            val reply = builder.toString().trim()
-            Log.d("ChatRepository", "Complete reply: $reply")
-            manager.appendAssistant(reply)
+            val reply = builder.toString()
+            val cleanReply = reply.trim()
+            Log.d("ChatRepository", "Complete reply: $cleanReply")
+            manager.appendAssistant(cleanReply)
             val replyTime = System.currentTimeMillis()
             msgDao.insert(
                 MessageEntity(
                     conversationId = conversationId,
-                    text = reply,
+                    text = cleanReply,
                     isUser = false,
                     timestamp = replyTime
                 )
             )
-            convDao.upsert(ConversationEntity(conversationId, conversationId, reply, replyTime))
+            convDao.upsert(ConversationEntity(conversationId, conversationId, cleanReply, replyTime))
             Log.d("ChatRepository", "Assistant message saved")
 
         } catch (e: Exception) {
