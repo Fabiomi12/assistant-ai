@@ -132,6 +132,13 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerate(
         auto tok = static_cast<llama_token>(best);
         const char* piece = llama_vocab_get_text(vocab, tok);
         if (!piece) break;
+        // Stop if the model signaled end of turn
+        if (strcmp(piece, "<end_of_turn>") == 0) {
+            llama_batch b2 = llama_batch_get_one(&tok, 1);
+            llama_decode(ctx, b2);
+            llama_batch_free(b2);
+            break;
+        }
         out += piece;
 
         // decode this token
@@ -190,7 +197,7 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(
 
     // Prepare Java callback method
     jclass cbCls = env->GetObjectClass(callback);
-    jmethodID onToken = env->GetMethodID(cbCls, "onToken", "(Ljava/lang/String;)V");
+    jmethodID onToken = env->GetMethodID(cbCls, "onToken", "(Ljava/lang/String;)Z");
     int32_t vocab_size = llama_n_vocab(vocab);
 
     // Stream tokens as generated
@@ -208,9 +215,22 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(
         auto tok = static_cast<llama_token>(best);
         const char* piece = llama_vocab_get_text(vocab, tok);
         if (!piece) break;
+        // Stop if the model signaled end of turn
+        if (strcmp(piece, "<end_of_turn>") == 0) {
+            llama_batch b2 = llama_batch_get_one(&tok, 1);
+            llama_decode(ctx, b2);
+            llama_batch_free(b2);
+            break;
+        }
         jstring pieceJ = env->NewStringUTF(piece);
-        env->CallVoidMethod(callback, onToken, pieceJ);
+        jboolean cont = env->CallBooleanMethod(callback, onToken, pieceJ);
         env->DeleteLocalRef(pieceJ);
+        if (cont == JNI_FALSE) {
+            llama_batch b2 = llama_batch_get_one(&tok, 1);
+            llama_decode(ctx, b2);
+            llama_batch_free(b2);
+            break;
+        }
 
         llama_batch b2 = llama_batch_get_one(&tok, 1);
         if (llama_decode(ctx, b2) != 0) {
