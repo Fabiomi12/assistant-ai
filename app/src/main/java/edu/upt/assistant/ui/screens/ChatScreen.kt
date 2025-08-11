@@ -11,12 +11,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
@@ -27,25 +30,44 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 // Simple data model for a chat message
-data class Message(val text: String, val isUser: Boolean)
+data class Message(
+    val text: String,
+    val isUser: Boolean,
+    val isStreaming: Boolean = false
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     modifier: Modifier = Modifier,
     messages: List<Message>,
+    streamingMessage: String?,
+    isStreaming: Boolean,
     onSend: (String) -> Unit,
     initialMessage: String? = null
 ) {
     var inputText by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
 
     // Set the initial message when the screen is first composed
     LaunchedEffect(initialMessage) {
         if (initialMessage != null && inputText.isEmpty()) {
             inputText = initialMessage
+            // Auto-send the initial message
+            onSend(initialMessage)
+        }
+    }
+
+    // Auto-scroll to bottom when new messages arrive or streaming updates
+    LaunchedEffect(messages.size, streamingMessage) {
+        if (messages.isNotEmpty() || streamingMessage != null) {
+            listState.animateScrollToItem(
+                index = if (streamingMessage != null) messages.size else messages.size - 1
+            )
         }
     }
 
@@ -57,26 +79,61 @@ fun ChatScreen(
     ) {
         // Message list
         LazyColumn(
-            modifier = Modifier
-                .weight(1f)
+            modifier = Modifier.weight(1f),
+            state = listState,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(messages) { message ->
                 MessageBubble(message)
-                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // Show streaming message if present
+            if (streamingMessage != null && streamingMessage.isNotEmpty()) {
+                item {
+                    MessageBubble(
+                        Message(
+                            text = streamingMessage,
+                            isUser = false,
+                            isStreaming = true
+                        )
+                    )
+                }
+            }
+
+            // Show loading indicator if streaming but no content yet
+            if (isStreaming && streamingMessage.isNullOrEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.padding(8.dp)
+                            )
+                            Text("Generating response...")
+                        }
+                    }
+                }
             }
         }
 
         // Input row
         Row(
-            modifier = Modifier
-                .fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextField(
                 value = inputText,
                 onValueChange = { inputText = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Type a message…") }
+                placeholder = { Text("Type a message…") },
+                enabled = !isStreaming // Disable input while streaming
             )
             IconButton(
                 onClick = {
@@ -84,7 +141,8 @@ fun ChatScreen(
                         onSend(inputText.trim())
                         inputText = ""
                     }
-                }
+                },
+                enabled = inputText.isNotBlank() && !isStreaming
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.Send,
@@ -98,8 +156,7 @@ fun ChatScreen(
 @Composable
 fun MessageBubble(message: Message) {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = Modifier.fillMaxWidth()
     ) {
         val alignment = if (message.isUser) Alignment.CenterEnd else Alignment.CenterStart
         Card(
@@ -107,10 +164,23 @@ fun MessageBubble(message: Message) {
                 .fillMaxWidth(0.8f)
                 .align(alignment)
         ) {
-            Text(
-                text = message.text,
+            Column(
                 modifier = Modifier.padding(12.dp)
-            )
+            ) {
+                Text(
+                    text = message.text,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+
+                if (message.isStreaming) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "● Generating...",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
         }
     }
 }

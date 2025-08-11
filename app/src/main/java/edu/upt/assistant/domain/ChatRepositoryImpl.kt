@@ -33,12 +33,32 @@ class ChatRepositoryImpl @Inject constructor(
     @ApplicationContext private val appContext: Context
 ) : ChatRepository {
 
+    private var _llamaCtx: Long? = null
     init {
         Log.d("ChatRepository", "ChatRepositoryImpl created")
+        Log.d("ChatRepository", "Initializing llama context")
+        // Ensure model is downloaded
+        if (!modelDownloadManager.isModelAvailable()) {
+            Log.e("ChatRepository", "Model not available")
+            throw IllegalStateException("Model not available. Please download the model first.")
+        }
+
+        val modelPath = modelDownloadManager.getModelPath()
+        Log.d("ChatRepository", "Model path: $modelPath")
+        val ctx = LlamaNative.llamaCreate(
+            modelPath,
+            Runtime.getRuntime().availableProcessors()
+        )
+        if (ctx == 0L) {
+            Log.e("ChatRepository", "Failed to create llama context")
+            throw IllegalStateException("Failed to create llama context")
+        }
+        Log.d("ChatRepository", "Llama context created: $ctx")
+        _llamaCtx = ctx
     }
 
     // Lazily initialize the native llama context
-    private var _llamaCtx: Long? = null
+
     private suspend fun getLlamaContext(): Long {
         return _llamaCtx ?: run {
             Log.d("ChatRepository", "Initializing llama context")
@@ -127,21 +147,26 @@ class ChatRepositoryImpl @Inject constructor(
 
             // 3) stream tokens
             val builder = StringBuilder()
-            withContext(Dispatchers.Default) {
+            withContext(Dispatchers.IO) {
                 Log.d("ChatRepository", "Starting token generation")
-                LlamaNative.llamaGenerateStream(
-                    ctx,
-                    prompt,
-                    /* maxTokens = */ 128,
-                    TokenCallback { token ->
-                        Log.d("ChatRepository", "Generated token: $token")
-                        val success = trySend(token).isSuccess
-                        if (success) {
-                            builder.append(token)
+                try {
+                    LlamaNative.llamaGenerateStream(
+                        ctx,
+                        prompt,
+                        /* maxTokens = */ 128,
+                        TokenCallback { token ->
+                            Log.d("ChatRepository", "Generated token: $token")
+                            val success = trySend(token).isSuccess
+                            if (success) {
+                                builder.append(token)
+                            }
+                            // Keep the callback alive
                         }
-                        success
-                    }
-                )
+                    )
+                } catch (e: Exception) {
+                    Log.e("ChatRepository", "Error during streaming", e)
+                    trySend("Error: Failed to generate response")
+                }
             }
 
             // 4) after streaming, persist assistant message

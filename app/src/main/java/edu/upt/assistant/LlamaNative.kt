@@ -5,7 +5,13 @@ fun interface TokenCallback {
 }
 
 object LlamaNative {
-  init { System.loadLibrary("llama_jni") }
+  init {
+    try {
+      System.loadLibrary("llama_jni")
+    } catch (e: UnsatisfiedLinkError) {
+      throw RuntimeException("Failed to load llama_jni library", e)
+    }
+  }
 
   @JvmStatic external fun llamaCreate(modelPath: String, nThreads: Int): Long
   @JvmStatic external fun llamaGenerate(ctxPtr: Long, prompt: String, maxTokens: Int): String

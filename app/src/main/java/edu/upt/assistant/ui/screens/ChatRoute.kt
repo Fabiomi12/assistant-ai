@@ -13,8 +13,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -22,6 +26,7 @@ import edu.upt.assistant.domain.ChatViewModel
 import edu.upt.assistant.ui.navigation.HISTORY_ROUTE
 import edu.upt.assistant.ui.navigation.NEW_CHAT_ROUTE
 import edu.upt.assistant.ui.navigation.SETTINGS_ROUTE
+import kotlinx.coroutines.flow.filter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,10 +36,39 @@ fun ChatRoute(
     vm: ChatViewModel = hiltViewModel(),
     initialMessage: String? = null
 ) {
-    // 1️⃣ collect the cold Flow from the VM
+    // Collect the messages from the VM
     val messages by vm
         .messagesFor(conversationId)
         .collectAsState(initial = emptyList())
+
+    // Track streaming state for this conversation
+    val currentStreamingConversation by vm.currentStreamingConversation.collectAsState()
+    val isStreaming = currentStreamingConversation == conversationId
+
+    // Accumulate streamed tokens for the current response
+    var streamingMessage by remember { mutableStateOf("") }
+
+    // Collect tokens from the SharedFlow when streaming this conversation
+    LaunchedEffect(conversationId) {
+        vm.streamedTokens
+            .filter { currentStreamingConversation == conversationId }
+            .collect { token ->
+                // Check if token is an error message
+                if (token.startsWith("Error:")) {
+                    streamingMessage = token
+                } else {
+                    // Accumulate tokens, replacing underscores with spaces
+                    streamingMessage += token.replace("▁", " ")
+                }
+            }
+    }
+
+    // Clear streaming message when streaming stops
+    LaunchedEffect(isStreaming) {
+        if (!isStreaming) {
+            streamingMessage = ""
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -61,9 +95,17 @@ fun ChatRoute(
         ChatScreen(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues),      // ← apply Scaffold insets
+                .padding(paddingValues),
             messages = messages,
-            onSend = { vm.sendMessage(conversationId, it) },
+            streamingMessage = streamingMessage.trim(),
+            isStreaming = isStreaming,
+            onSend = { text ->
+                if (initialMessage != null && text == initialMessage) {
+                    // This is the initial message, already being processed
+                    return@ChatScreen
+                }
+                vm.sendMessage(conversationId, text)
+            },
             initialMessage = initialMessage
         )
     }
