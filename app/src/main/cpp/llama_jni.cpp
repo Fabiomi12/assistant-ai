@@ -162,7 +162,6 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerate(
     // Prepare output
     std::string output;
     output.reserve(maxTokens * 4);
-    int32_t vocab_size = llama_n_vocab(vocab);
     int n_cur = ntok;
 
     // Greedy generative loop
@@ -299,25 +298,18 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(
     int32_t vocab_size = llama_n_vocab(vocab);
     int n_cur = ntok;
 
+    // Configure sampler to apply top-k, top-p and temperature sampling
+    auto sparams = llama_sampler_chain_default_params();
+    llama_sampler * sampler = llama_sampler_chain_init(sparams);
+    llama_sampler_chain_add(sampler, llama_sampler_init_top_k(40));
+    llama_sampler_chain_add(sampler, llama_sampler_init_top_p(0.95f, 1));
+    llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.8f));
+    llama_sampler_chain_add(sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
     // Stream tokens as generated
     for (int i = 0; i < maxTokens; ++i) {
-        float* logits = llama_get_logits_ith(ctx, -1);
-        if (!logits) {
-            LOGE("Failed to get logits");
-            break;
-        }
-
-        // Find token with highest logit
-        int best_token = 0;
-        float max_logit = logits[0];
-        for (int j = 1; j < vocab_size; ++j) {
-            if (logits[j] > max_logit) {
-                max_logit = logits[j];
-                best_token = j;
-            }
-        }
-
-        auto next_token = static_cast<llama_token>(best_token);
+        // Sample next token directly using llama.cpp's sampler
+        llama_token next_token = llama_sampler_sample(sampler, ctx, -1);
 
         // Check for EOS
         if (llama_vocab_is_eog(vocab, next_token)) {
@@ -362,7 +354,8 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(
         n_cur++;
     }
 
-    // Clean up batch
+    // Clean up sampler and batch
+    llama_sampler_free(sampler);
     llama_batch_free(batch);
     LOGI("Streaming generation completed");
 }
