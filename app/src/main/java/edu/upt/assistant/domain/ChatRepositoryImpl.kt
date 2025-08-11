@@ -21,6 +21,7 @@ import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.lang.Runtime
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -49,7 +50,14 @@ class ChatRepositoryImpl @Inject constructor(
 
             val modelPath = modelDownloadManager.getModelPath()
             Log.d("ChatRepository", "Model path: $modelPath")
-            val ctx = LlamaNative.llamaCreate(modelPath)
+            val ctx = LlamaNative.llamaCreate(
+                modelPath,
+                Runtime.getRuntime().availableProcessors()
+            )
+            if (ctx == 0L) {
+                Log.e("ChatRepository", "Failed to create llama context")
+                throw IllegalStateException("Failed to create llama context")
+            }
             Log.d("ChatRepository", "Llama context created: $ctx")
             _llamaCtx = ctx
             ctx
@@ -119,6 +127,7 @@ class ChatRepositoryImpl @Inject constructor(
 
             // 3) stream tokens
             val builder = StringBuilder()
+            var ended = false
             withContext(Dispatchers.Default) {
                 Log.d("ChatRepository", "Starting token generation")
                 LlamaNative.llamaGenerateStream(
@@ -127,16 +136,16 @@ class ChatRepositoryImpl @Inject constructor(
                     /* maxTokens = */ 128,
                     TokenCallback { token ->
                         Log.d("ChatRepository", "Generated token: $token")
-                        // Drop control tokens like <end_of_turn> or other model-specific markers
-                        if (token.startsWith("<") && token.endsWith(">")) {
-                            true // continue without emitting the token
-                        } else {
-                            val success = trySend(token).isSuccess
-                            if (success) {
-                                builder.append(token)
-                            }
-                            success
+                        if (ended) return@TokenCallback false
+                        if (token == "<end_of_turn>") {
+                            ended = true
+                            return@TokenCallback false
                         }
+                        val success = trySend(token).isSuccess
+                        if (success) {
+                            builder.append(token)
+                        }
+                        success
                     }
                 )
             }

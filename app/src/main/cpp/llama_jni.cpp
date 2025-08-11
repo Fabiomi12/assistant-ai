@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <android/log.h>
+#include <thread>
 #include "llama.h"
 
 #define LOG_TAG "LLAMA_JNI"
@@ -17,7 +18,7 @@ extern "C" {
 // -----------------------------
 JNIEXPORT jlong JNICALL
 Java_edu_upt_assistant_LlamaNative_llamaCreate(
-        JNIEnv* env, jclass, jstring modelPathJ
+        JNIEnv* env, jclass, jstring modelPathJ, jint nThreads
 ) {
     const char* path = env->GetStringUTFChars(modelPathJ, nullptr);
     llama_model_params mparams = llama_model_default_params();
@@ -30,10 +31,15 @@ Java_edu_upt_assistant_LlamaNative_llamaCreate(
     }
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = 2048;
-    cparams.n_threads = 4;
+    int threads = nThreads > 0 ? nThreads : static_cast<int>(std::thread::hardware_concurrency());
+    if (threads <= 0) {
+        threads = 1;
+    }
+    cparams.n_threads = threads;
+    LOGI("Using %d threads", threads);
     llama_context* ctx = llama_init_from_model(model, cparams);
-    llama_model_free(model);
     if (!ctx) {
+        llama_model_free(model);
         jclass ioe = env->FindClass("java/io/IOException");
         env->ThrowNew(ioe, "Failed to init context");
         return 0;
@@ -48,7 +54,11 @@ Java_edu_upt_assistant_LlamaNative_llamaFree(
 ) {
     auto* ctx = reinterpret_cast<llama_context*>(ctxPtr);
     if (ctx) {
+        const llama_model* model = llama_get_model(ctx);
         llama_free(ctx);
+        if (model) {
+            llama_model_free(const_cast<llama_model*>(model));
+        }
         LOGI("Context freed");
     }
 }
@@ -70,7 +80,17 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerate(
     // Get prompt text
     const char* prompt = env->GetStringUTFChars(promptJ, nullptr);
     const llama_model* model = llama_get_model(ctx);
+    if (!model) {
+        jclass exc = env->FindClass("java/lang/IllegalStateException");
+        env->ThrowNew(exc, "Model not initialized");
+        return nullptr;
+    }
     const llama_vocab* vocab = llama_model_get_vocab(model);
+    if (!vocab) {
+        jclass exc = env->FindClass("java/lang/IllegalStateException");
+        env->ThrowNew(exc, "Vocab not initialized");
+        return nullptr;
+    }
 
     // Tokenize prompt
     std::vector<llama_token> tokens(4096);
@@ -91,7 +111,6 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerate(
     if (llama_decode(ctx, batch) != 0) {
         LOGE("Initial decode failed");
     }
-    llama_batch_free(batch);
 
     // Prepare output
     std::string out;
@@ -113,16 +132,21 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerate(
         auto tok = static_cast<llama_token>(best);
         const char* piece = llama_vocab_get_text(vocab, tok);
         if (!piece) break;
+        // Stop if the model signaled end of turn
+        if (strcmp(piece, "<end_of_turn>") == 0) {
+            llama_batch b2 = llama_batch_get_one(&tok, 1);
+            llama_decode(ctx, b2);
+            llama_batch_free(b2);
+            break;
+        }
         out += piece;
 
         // decode this token
         llama_batch b2 = llama_batch_get_one(&tok, 1);
         if (llama_decode(ctx, b2) != 0) {
             LOGE("Decode token failed");
-            llama_batch_free(b2);
             break;
         }
-        llama_batch_free(b2);
     }
 
     return env->NewStringUTF(out.c_str());
@@ -142,7 +166,15 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(
 
     const char* prompt = env->GetStringUTFChars(promptJ, nullptr);
     const llama_model* model = llama_get_model(ctx);
+    if (!model) {
+        env->ReleaseStringUTFChars(promptJ, prompt);
+        return;
+    }
     const llama_vocab* vocab = llama_model_get_vocab(model);
+    if (!vocab) {
+        env->ReleaseStringUTFChars(promptJ, prompt);
+        return;
+    }
 
     // Tokenize and decode prompt
     std::vector<llama_token> tokens(4096);
@@ -160,14 +192,12 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(
     llama_batch batch = llama_batch_get_one(tokens.data(), ntok);
     if (llama_decode(ctx, batch) != 0) {
         LOGE("Initial decode failed");
-        llama_batch_free(batch);
         return;
     }
-    llama_batch_free(batch);
 
     // Prepare Java callback method
     jclass cbCls = env->GetObjectClass(callback);
-    jmethodID onToken = env->GetMethodID(cbCls, "onToken", "(Ljava/lang/String;)V");
+    jmethodID onToken = env->GetMethodID(cbCls, "onToken", "(Ljava/lang/String;)Z");
     int32_t vocab_size = llama_n_vocab(vocab);
 
     // Stream tokens as generated
@@ -185,17 +215,28 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(
         auto tok = static_cast<llama_token>(best);
         const char* piece = llama_vocab_get_text(vocab, tok);
         if (!piece) break;
+        // Stop if the model signaled end of turn
+        if (strcmp(piece, "<end_of_turn>") == 0) {
+            llama_batch b2 = llama_batch_get_one(&tok, 1);
+            llama_decode(ctx, b2);
+            llama_batch_free(b2);
+            break;
+        }
         jstring pieceJ = env->NewStringUTF(piece);
-        env->CallVoidMethod(callback, onToken, pieceJ);
+        jboolean cont = env->CallBooleanMethod(callback, onToken, pieceJ);
         env->DeleteLocalRef(pieceJ);
+        if (cont == JNI_FALSE) {
+            llama_batch b2 = llama_batch_get_one(&tok, 1);
+            llama_decode(ctx, b2);
+            llama_batch_free(b2);
+            break;
+        }
 
         llama_batch b2 = llama_batch_get_one(&tok, 1);
         if (llama_decode(ctx, b2) != 0) {
             LOGE("Decode token failed");
-            llama_batch_free(b2);
             break;
         }
-        llama_batch_free(b2);
     }
 }
 
