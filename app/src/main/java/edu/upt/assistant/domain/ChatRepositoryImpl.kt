@@ -119,7 +119,6 @@ class ChatRepositoryImpl @Inject constructor(
 
             // 3) stream tokens
             val builder = StringBuilder()
-            var ended = false
             withContext(Dispatchers.Default) {
                 Log.d("ChatRepository", "Starting token generation")
                 LlamaNative.llamaGenerateStream(
@@ -128,11 +127,6 @@ class ChatRepositoryImpl @Inject constructor(
                     /* maxTokens = */ 128,
                     TokenCallback { token ->
                         Log.d("ChatRepository", "Generated token: $token")
-                        if (ended) return@TokenCallback false
-                        if (token == "<end_of_turn>") {
-                            ended = true
-                            return@TokenCallback false
-                        }
                         val success = trySend(token).isSuccess
                         if (success) {
                             builder.append(token)

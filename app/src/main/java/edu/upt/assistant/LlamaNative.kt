@@ -1,10 +1,7 @@
 package edu.upt.assistant
 
 fun interface TokenCallback {
-  /**
-   * @return true to continue streaming, false to stop generation
-   */
-  fun onToken(token: String): Boolean
+  fun onToken(token: String)
 }
 
 object LlamaNative {
