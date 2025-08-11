@@ -156,9 +156,13 @@ class ChatRepositoryImpl @Inject constructor(
                         /* maxTokens = */ 128,
                         TokenCallback { token ->
                             Log.d("ChatRepository", "Generated token: $token")
-                            val success = trySend(token).isSuccess
+
+                            val normalized = token.replace("▁", " ")
+                            val output = if (builder.isEmpty()) normalized.trimStart() else normalized
+
+                            val success = trySend(output).isSuccess
                             if (success) {
-                                builder.append(token)
+                                builder.append(output)
                             }
                             // Keep the callback alive
                         }
