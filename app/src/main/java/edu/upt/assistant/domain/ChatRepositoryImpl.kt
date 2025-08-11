@@ -11,7 +11,11 @@ import edu.upt.assistant.data.local.db.MessageDao
 import edu.upt.assistant.data.local.db.MessageEntity
 import edu.upt.assistant.ui.screens.Conversation
 import edu.upt.assistant.ui.screens.Message
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
@@ -33,36 +37,12 @@ class ChatRepositoryImpl @Inject constructor(
     @ApplicationContext private val appContext: Context
 ) : ChatRepository {
 
-    private var _llamaCtx: Long? = null
-    init {
-        Log.d("ChatRepository", "ChatRepositoryImpl created")
-        Log.d("ChatRepository", "Initializing llama context")
-        // Ensure model is downloaded
-        if (!modelDownloadManager.isModelAvailable()) {
-            Log.e("ChatRepository", "Model not available")
-            throw IllegalStateException("Model not available. Please download the model first.")
-        }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var llamaCtxDeferred: Deferred<Long>? = null
 
-        val modelPath = modelDownloadManager.getModelPath()
-        Log.d("ChatRepository", "Model path: $modelPath")
-        val ctx = LlamaNative.llamaCreate(
-            modelPath,
-            Runtime.getRuntime().availableProcessors()
-        )
-        if (ctx == 0L) {
-            Log.e("ChatRepository", "Failed to create llama context")
-            throw IllegalStateException("Failed to create llama context")
-        }
-        Log.d("ChatRepository", "Llama context created: $ctx")
-        _llamaCtx = ctx
-    }
-
-    // Lazily initialize the native llama context
-
-    private suspend fun getLlamaContext(): Long {
-        return _llamaCtx ?: run {
+    private fun initLlamaContext(): Deferred<Long> {
+        return scope.async {
             Log.d("ChatRepository", "Initializing llama context")
-            // Ensure model is downloaded
             if (!modelDownloadManager.isModelAvailable()) {
                 Log.e("ChatRepository", "Model not available")
                 throw IllegalStateException("Model not available. Please download the model first.")
@@ -79,9 +59,14 @@ class ChatRepositoryImpl @Inject constructor(
                 throw IllegalStateException("Failed to create llama context")
             }
             Log.d("ChatRepository", "Llama context created: $ctx")
-            _llamaCtx = ctx
             ctx
-        }
+        }.also { llamaCtxDeferred = it }
+    }
+
+    // Lazily initialize the native llama context
+    private suspend fun getLlamaContext(): Long {
+        val deferred = llamaCtxDeferred ?: initLlamaContext()
+        return deferred.await()
     }
 
     // Keep a ConversationManager per conversation
