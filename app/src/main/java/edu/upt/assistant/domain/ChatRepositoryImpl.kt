@@ -158,6 +158,8 @@ class ChatRepositoryImpl @Inject constructor(
                 }
             }
 
+            LlamaNative.llamaKvCacheClear(ctx)
+
             // 4) after streaming, persist assistant message
             val reply = builder.toString()
             val cleanReply = reply.trim()
