@@ -1,6 +1,7 @@
 package edu.upt.assistant.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudDownload
@@ -82,13 +83,30 @@ class SettingsModelViewModel @Inject constructor(
     }
 }
 
+private val interestOptions = listOf(
+    "Hiking", "Reading", "Cooking", "Music", "Travel", "Gaming",
+    "Football", "Basketball", "Tennis", "Swimming", "Cycling", "Yoga",
+    "Photography", "Painting", "Drawing", "Sculpture", "Writing", "Poetry",
+    "Tech News", "Programming", "AI/ML", "Blockchain", "Gadgets",
+    "Movies", "TV Shows", "Theater", "Comedy", "Stand-up",
+    "Fitness", "Weightlifting", "Running", "CrossFit", "Pilates",
+    "Foodie", "Vegan Cooking", "Baking", "Barbecue",
+    "Travel", "Backpacking", "Road Trips", "Beach", "Mountains",
+    "Gardening", "Astrology", "Meditation",
+    "Board Games", "Chess", "Poker", "Role-Playing Games"
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     username: String,
     notificationsEnabled: Boolean,
+    selectedInterests: Set<String>,
+    customInterest: String,
     onUserNameChange: (String) -> Unit,
     onNotificationsToggle: (Boolean) -> Unit,
+    onInterestsChange: (Set<String>) -> Unit,
+    onCustomInterestChange: (String) -> Unit,
     onBack: () -> Unit,
     onDownloadModel: () -> Unit = {},
     modelViewModel: SettingsModelViewModel = hiltViewModel()
@@ -179,6 +197,62 @@ fun SettingsScreen(
                             onCheckedChange = onNotificationsToggle
                         )
                     }
+                }
+            }
+
+            // Hobbies Section
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = "Hobbies",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        interestOptions.forEach { item ->
+                            FilterChip(
+                                selected = selectedInterests.contains(item),
+                                onClick = {
+                                    val newSet = selectedInterests.toMutableSet().apply {
+                                        if (contains(item)) remove(item) else add(item)
+                                    }
+                                    onInterestsChange(newSet)
+                                },
+                                label = { Text(item) }
+                            )
+                        }
+                    }
+
+                    var localCustom by rememberSaveable { mutableStateOf(customInterest) }
+                    LaunchedEffect(customInterest) {
+                        if (customInterest != localCustom) {
+                            localCustom = customInterest
+                        }
+                    }
+                    fun commitCustom() {
+                        if (localCustom != customInterest) {
+                            onCustomInterestChange(localCustom)
+                        }
+                    }
+                    OutlinedTextField(
+                        value = localCustom,
+                        onValueChange = { localCustom = it },
+                        label = { Text("Other Interests") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { if (!it.isFocused) commitCustom() },
+                        keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { commitCustom() })
+                    )
                 }
             }
 

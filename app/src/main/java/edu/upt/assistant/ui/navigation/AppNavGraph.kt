@@ -124,12 +124,18 @@ fun AppNavGraph(
             val settingsVm: SettingsViewModel = hiltViewModel()
             val username by settingsVm.username.collectAsState()
             val notificationsEnabled by settingsVm.notificationsEnabled.collectAsState()
+            val interests by settingsVm.interests.collectAsState()
+            val customInterest by settingsVm.customInterest.collectAsState()
 
             SettingsScreen(
                 username = username,
                 notificationsEnabled = notificationsEnabled,
+                selectedInterests = interests,
+                customInterest = customInterest,
                 onUserNameChange = { settingsVm.setUsername(it) },
                 onNotificationsToggle = { settingsVm.setNotificationsEnabled(it) },
+                onInterestsChange = { settingsVm.setInterests(it) },
+                onCustomInterestChange = { settingsVm.setCustomInterest(it) },
                 onBack = { navController.popBackStack() },
                 onDownloadModel = { navController.navigate(MODEL_DOWNLOAD_ROUTE) }
             )
