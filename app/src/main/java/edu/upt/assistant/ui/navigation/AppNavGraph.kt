@@ -3,6 +3,8 @@ package edu.upt.assistant.ui.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -10,10 +12,12 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import edu.upt.assistant.domain.ChatViewModel
+import edu.upt.assistant.domain.ModelDownloadManager
 import edu.upt.assistant.domain.SettingsViewModel
 import edu.upt.assistant.ui.screens.ChatRoute
 import edu.upt.assistant.ui.screens.HistoryScreen
 import edu.upt.assistant.ui.screens.NewChatScreen
+import edu.upt.assistant.ui.screens.ModelDownloadScreen
 import edu.upt.assistant.ui.screens.SettingsScreen
 import edu.upt.assistant.ui.screens.SetupRoute
 import java.net.URLEncoder
@@ -27,6 +31,8 @@ fun AppNavGraph(
     // grab the VM once at top‐level
     val vm: ChatViewModel = hiltViewModel()
     val settingsVm: SettingsViewModel = hiltViewModel()
+    val context = LocalContext.current
+    val modelDownloadManager = remember { ModelDownloadManager(context.applicationContext) }
 
     // collect conversations reactively
     val conversations by vm.conversations.collectAsState()
@@ -55,13 +61,17 @@ fun AppNavGraph(
             NewChatScreen(
                 username = username,
                 onStartChat = { initial ->
-                    // Generate the ID immediately:
-                    val newId = UUID.randomUUID().toString()
-                    vm.startNewConversation(newId, initial)
+                    if (!modelDownloadManager.isModelAvailable()) {
+                        navController.navigate(MODEL_DOWNLOAD_ROUTE)
+                    } else {
+                        // Generate the ID immediately:
+                        val newId = UUID.randomUUID().toString()
+                        vm.startNewConversation(newId, initial)
 
-                    // Navigate with the initial message encoded
-                    val encodedMessage = URLEncoder.encode(initial, "UTF-8")
-                    navController.navigate("chat/$newId?initialMessage=$encodedMessage")
+                        // Navigate with the initial message encoded
+                        val encodedMessage = URLEncoder.encode(initial, "UTF-8")
+                        navController.navigate("chat/$newId?initialMessage=$encodedMessage")
+                    }
                 },
                 onHistoryClick = { navController.navigate(HISTORY_ROUTE) },
                 onSettingsClick = { navController.navigate(SETTINGS_ROUTE) }
@@ -120,7 +130,19 @@ fun AppNavGraph(
                 notificationsEnabled = notificationsEnabled,
                 onUserNameChange = { settingsVm.setUsername(it) },
                 onNotificationsToggle = { settingsVm.setNotificationsEnabled(it) },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onDownloadModel = { navController.navigate(MODEL_DOWNLOAD_ROUTE) }
+            )
+        }
+
+        // 5) Model Download Screen
+        composable(MODEL_DOWNLOAD_ROUTE) {
+            ModelDownloadScreen(
+                onModelReady = {
+                    navController.navigate(NEW_CHAT_ROUTE) {
+                        popUpTo(MODEL_DOWNLOAD_ROUTE) { inclusive = true }
+                    }
+                }
             )
         }
     }
