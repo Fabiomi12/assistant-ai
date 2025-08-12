@@ -78,6 +78,16 @@ Java_edu_upt_assistant_LlamaNative_llamaFree(JNIEnv *, jclass, jlong ctxPtr) {
   }
 }
 
+JNIEXPORT void JNICALL
+Java_edu_upt_assistant_LlamaNative_llamaKvCacheClear(JNIEnv *, jclass,
+                                                     jlong ctxPtr) {
+  auto *ctx = reinterpret_cast<llama_context *>(ctxPtr);
+  if (ctx) {
+    llama_kv_self_clear(ctx);
+    LOGI("KV cache cleared");
+  }
+}
+
 // -----------------------------
 // JNI: Synchronous Generation
 // -----------------------------

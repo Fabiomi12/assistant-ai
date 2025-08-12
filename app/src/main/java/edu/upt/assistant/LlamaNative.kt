@@ -21,5 +21,6 @@ object LlamaNative {
     maxTokens: Int,
     callback: TokenCallback
   )
+  @JvmStatic external fun llamaKvCacheClear(ctxPtr: Long)
   @JvmStatic external fun llamaFree(ctxPtr: Long)
 }
