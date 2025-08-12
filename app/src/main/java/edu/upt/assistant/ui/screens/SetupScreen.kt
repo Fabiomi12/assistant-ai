@@ -222,6 +222,7 @@ fun SetupStep2(
     onCustomInterestChange: (String) -> Unit,
     onFinish: () -> Unit
 ) {
+    val vm: SetupViewModel = hiltViewModel()
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
@@ -262,7 +263,7 @@ fun SetupStep2(
             )
 
             Button(
-                onClick = onFinish,
+                onClick = { vm.persist { onFinish() } },
                 enabled = true,
                 modifier = Modifier.align(Alignment.End)
             ) {
