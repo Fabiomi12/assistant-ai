@@ -3,9 +3,9 @@ package edu.upt.assistant.domain
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -37,42 +37,51 @@ class ModelDownloadManager @Inject constructor(
     
     fun getModelPath(): String = modelFile.absolutePath
     
-    fun downloadModel(): Flow<DownloadProgress> = flow {
+    private val _progress = MutableSharedFlow<DownloadProgress>(replay = 1, extraBufferCapacity = 1)
+    val progress: SharedFlow<DownloadProgress> = _progress.asSharedFlow()
+
+    suspend fun downloadModel() = withContext(Dispatchers.IO) {
         if (isModelAvailable()) {
-            emit(DownloadProgress(modelFile.length(), modelFile.length(), 100))
-            return@flow
+            _progress.emit(
+                DownloadProgress(modelFile.length(), modelFile.length(), 100)
+            )
+            return@withContext
         }
-        
+
         modelsDir.mkdirs()
-        
+
         val url = URL(MODEL_URL)
         val connection = url.openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
         connection.connect()
-        
+
         val totalBytes = connection.contentLengthLong
         var bytesDownloaded = 0L
-        
+
+        _progress.emit(DownloadProgress(0, totalBytes, 0))
+
         connection.inputStream.use { input ->
             FileOutputStream(modelFile).use { output ->
                 val buffer = ByteArray(8192)
                 var bytesRead: Int
-                
+
                 while (input.read(buffer).also { bytesRead = it } != -1) {
                     output.write(buffer, 0, bytesRead)
                     bytesDownloaded += bytesRead
-                    
+
                     val percentage = if (totalBytes > 0) {
                         ((bytesDownloaded * 100) / totalBytes).toInt()
                     } else 0
-                    
-                    emit(DownloadProgress(bytesDownloaded, totalBytes, percentage))
+
+                    _progress.emit(DownloadProgress(bytesDownloaded, totalBytes, percentage))
                 }
             }
         }
-        
+
         connection.disconnect()
-    }.flowOn(Dispatchers.IO)
+
+        _progress.emit(DownloadProgress(bytesDownloaded, totalBytes, 100))
+    }
     
     suspend fun deleteModel() = withContext(Dispatchers.IO) {
         if (modelFile.exists()) {

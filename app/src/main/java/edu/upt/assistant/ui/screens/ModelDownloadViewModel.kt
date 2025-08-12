@@ -10,9 +10,16 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.app.Application
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import dagger.hilt.android.lifecycle.HiltViewModel
 import edu.upt.assistant.domain.DownloadProgress
 import edu.upt.assistant.domain.ModelDownloadManager
+import edu.upt.assistant.domain.ModelDownloadService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,42 +28,53 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ModelDownloadViewModel @Inject constructor(
+    private val app: Application,
     private val downloadManager: ModelDownloadManager
 ) : ViewModel() {
 
     private val _downloadState = MutableStateFlow<DownloadState>(DownloadState.NotStarted)
     val downloadState: StateFlow<DownloadState> = _downloadState.asStateFlow()
 
+    private val downloadReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val success = intent?.getBooleanExtra(ModelDownloadService.EXTRA_SUCCESS, false) ?: false
+            if (success) {
+                _downloadState.value = DownloadState.Completed
+            } else {
+                val msg = intent?.getStringExtra(ModelDownloadService.EXTRA_ERROR) ?: "Download failed"
+                _downloadState.value = DownloadState.Error(msg)
+            }
+        }
+    }
+
     init {
-        // Check if model is already available
         if (downloadManager.isModelAvailable()) {
             _downloadState.value = DownloadState.Completed
         }
+
+        viewModelScope.launch {
+            downloadManager.progress.collect { progress ->
+                _downloadState.value = DownloadState.Downloading(progress)
+            }
+        }
+
+        app.registerReceiver(
+            downloadReceiver,
+            IntentFilter(ModelDownloadService.ACTION_DOWNLOAD_COMPLETE)
+        )
     }
 
     fun startDownload() {
         if (_downloadState.value is DownloadState.Downloading) return
 
-        viewModelScope.launch {
-            _downloadState.value = DownloadState.Downloading(DownloadProgress(0, 0, 0))
-
-            try {
-                // Delete existing model first if re-downloading
-                if (downloadManager.isModelAvailable()) {
-                    downloadManager.deleteModel()
-                }
-
-                downloadManager.downloadModel().collect { progress ->
-                    _downloadState.value = DownloadState.Downloading(progress)
-
-                    if (progress.percentage >= 100) {
-                        _downloadState.value = DownloadState.Completed
-                    }
-                }
-            } catch (e: Exception) {
-                _downloadState.value = DownloadState.Error(e.message ?: "Download failed")
-            }
+        val intent = Intent(app, ModelDownloadService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            app.startForegroundService(intent)
+        } else {
+            app.startService(intent)
         }
+
+        _downloadState.value = DownloadState.Downloading(DownloadProgress(0, 0, 0))
     }
 
     fun deleteModel() {
@@ -64,6 +82,11 @@ class ModelDownloadViewModel @Inject constructor(
             downloadManager.deleteModel()
             _downloadState.value = DownloadState.NotStarted
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        app.unregisterReceiver(downloadReceiver)
     }
 }
 
