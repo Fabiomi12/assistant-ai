@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import edu.upt.assistant.LlamaNative
+import edu.upt.assistant.BuildConfig
 import edu.upt.assistant.TokenCallback
 import edu.upt.assistant.data.local.db.ConversationDao
 import edu.upt.assistant.data.local.db.ConversationEntity
@@ -25,7 +26,6 @@ import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.lang.Runtime
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -50,9 +50,11 @@ class ChatRepositoryImpl @Inject constructor(
 
             val modelPath = modelDownloadManager.getModelPath()
             Log.d("ChatRepository", "Model path: $modelPath")
+            val nThreads = BuildConfig.LLAMA_THREADS
+            Log.d("ChatRepository", "Using $nThreads threads")
             val ctx = LlamaNative.llamaCreate(
                 modelPath,
-                Runtime.getRuntime().availableProcessors()
+                nThreads
             )
             if (ctx == 0L) {
                 Log.e("ChatRepository", "Failed to create llama context")
