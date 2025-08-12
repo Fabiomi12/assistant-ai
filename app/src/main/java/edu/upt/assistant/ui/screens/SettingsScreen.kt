@@ -8,9 +8,14 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -127,11 +132,26 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.titleMedium
                     )
 
+                    var localUsername by rememberSaveable { mutableStateOf(username) }
+                    LaunchedEffect(username) {
+                        if (username != localUsername) {
+                            localUsername = username
+                        }
+                    }
+                    fun commitUsername() {
+                        if (localUsername != username) {
+                            onUserNameChange(localUsername)
+                        }
+                    }
                     OutlinedTextField(
-                        value = username,
-                        onValueChange = onUserNameChange,
+                        value = localUsername,
+                        onValueChange = { localUsername = it },
                         label = { Text("Your Name") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { if (!it.isFocused) commitUsername() },
+                        keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { commitUsername() })
                     )
                 }
             }
