@@ -19,6 +19,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -150,56 +151,60 @@ fun SetupStep1(
             onDispose { dialog.dismiss() }
         }
     }
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
     ) {
-        Text(
-            "Welcome! Let’s set up your profile.",
-            style = MaterialTheme.typography.headlineSmall
-        )
-
-        OutlinedTextField(
-            value = username,
-            onValueChange = onUsernameChange,
-            label = { Text("Your Name") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Enable Notifications")
-            Spacer(Modifier.weight(1f))
-            Switch(
-                checked = notificationsEnabled,
-                onCheckedChange = onNotificationsToggle
-            )
-        }
-
-        // Birthday picker field
-        Box(
+        Column(
             Modifier
-                .fillMaxWidth()
-                .clickable { showDatePicker = true }
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            Text(
+                "Welcome! Let’s set up your profile.",
+                style = MaterialTheme.typography.headlineSmall
+            )
+
             OutlinedTextField(
-                value = birthday,
-                onValueChange = {},
-                readOnly = true,
-                enabled = false,
-                label = { Text("Birthday") },
+                value = username,
+                onValueChange = onUsernameChange,
+                label = { Text("Your Name") },
                 modifier = Modifier.fillMaxWidth()
             )
-        }
 
-        Button(
-            onClick = onNext,
-            enabled = username.isNotBlank() && birthday.isNotBlank(),
-            modifier = Modifier.align(Alignment.End)
-        ) {
-            Text("Next")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Enable Notifications")
+                Spacer(Modifier.weight(1f))
+                Switch(
+                    checked = notificationsEnabled,
+                    onCheckedChange = onNotificationsToggle
+                )
+            }
+
+            // Birthday picker field
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { showDatePicker = true }
+            ) {
+                OutlinedTextField(
+                    value = birthday,
+                    onValueChange = {},
+                    readOnly = true,
+                    enabled = false,
+                    label = { Text("Birthday") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            Button(
+                onClick = onNext,
+                enabled = username.isNotBlank() && birthday.isNotBlank(),
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text("Next")
+            }
         }
     }
 }
@@ -215,46 +220,51 @@ fun SetupStep2(
     onCustomInterestChange: (String) -> Unit,
     onFinish: () -> Unit
 ) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
     ) {
-        Text(
-            "Almost done! Tell us more.",
-            style = MaterialTheme.typography.headlineSmall
-        )
-
-        Text("Select your interests:")
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement   = Arrangement.spacedBy(8.dp),
-            modifier              = Modifier.fillMaxWidth()
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            interests.forEach { item ->
-                FilterChip(
-                    selected = selectedInterests.contains(item),
-                    onClick  = { onInterestToggle(item) },
-                    label    = { Text(item) }
-                )
+            Text(
+                "Almost done! Tell us more.",
+                style = MaterialTheme.typography.headlineSmall
+            )
+
+            Text("Select your interests:")
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement   = Arrangement.spacedBy(8.dp),
+                modifier              = Modifier.fillMaxWidth()
+            ) {
+                interests.forEach { item ->
+                    FilterChip(
+                        selected = selectedInterests.contains(item),
+                        onClick  = { onInterestToggle(item) },
+                        label    = { Text(item) }
+                    )
+                }
             }
-        }
 
-        OutlinedTextField(
-            value = customInterest,
-            onValueChange = onCustomInterestChange,
-            label = { Text("Other Interests") },
-            modifier = Modifier.fillMaxWidth()
-        )
+            OutlinedTextField(
+                value = customInterest,
+                onValueChange = onCustomInterestChange,
+                label = { Text("Other Interests") },
+                modifier = Modifier.fillMaxWidth()
+            )
 
-        Button(
-            onClick = onFinish,
-            enabled = true,
-            modifier = Modifier.align(Alignment.End)
-        ) {
-            Text("Finish")
+            Button(
+                onClick = onFinish,
+                enabled = true,
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text("Finish")
+            }
         }
     }
 }
