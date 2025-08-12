@@ -30,6 +30,21 @@ class SettingsViewModel @Inject constructor(
     .map { prefs -> prefs[SettingsKeys.SETUP_DONE] ?: false }
     .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+  // Reactive interests flow
+  val interests: StateFlow<Set<String>> = dataStore.data
+    .map { prefs ->
+      prefs[SettingsKeys.INTERESTS]
+        ?.split(",")
+        ?.filter { it.isNotBlank() }
+        ?.toSet() ?: emptySet()
+    }
+    .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+  // Reactive custom interest flow
+  val customInterest: StateFlow<String> = dataStore.data
+    .map { prefs -> prefs[SettingsKeys.CUSTOM_INTEREST] ?: "" }
+    .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
   // Update username
   fun setUsername(name: String) = viewModelScope.launch {
     dataStore.edit { prefs ->
@@ -41,6 +56,20 @@ class SettingsViewModel @Inject constructor(
   fun setNotificationsEnabled(enabled: Boolean) = viewModelScope.launch {
     dataStore.edit { prefs ->
       prefs[SettingsKeys.NOTIFICATIONS] = enabled
+    }
+  }
+
+  // Update interests
+  fun setInterests(newInterests: Set<String>) = viewModelScope.launch {
+    dataStore.edit { prefs ->
+      prefs[SettingsKeys.INTERESTS] = newInterests.joinToString(",")
+    }
+  }
+
+  // Update custom interest
+  fun setCustomInterest(interest: String) = viewModelScope.launch {
+    dataStore.edit { prefs ->
+      prefs[SettingsKeys.CUSTOM_INTEREST] = interest
     }
   }
 }
