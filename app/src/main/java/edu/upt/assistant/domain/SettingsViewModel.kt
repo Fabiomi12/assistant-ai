@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import edu.upt.assistant.data.SettingsKeys
+import edu.upt.assistant.domain.ModelDownloadManager
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -30,6 +31,10 @@ class SettingsViewModel @Inject constructor(
     .map { prefs -> prefs[SettingsKeys.SETUP_DONE] ?: false }
     .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+  val modelUrl: StateFlow<String> = dataStore.data
+    .map { prefs -> prefs[SettingsKeys.MODEL_URL] ?: ModelDownloadManager.DEFAULT_MODEL_URL }
+    .stateIn(viewModelScope, SharingStarted.Eagerly, ModelDownloadManager.DEFAULT_MODEL_URL)
+
   // Update username
   fun setUsername(name: String) = viewModelScope.launch {
     dataStore.edit { prefs ->
@@ -41,6 +46,12 @@ class SettingsViewModel @Inject constructor(
   fun setNotificationsEnabled(enabled: Boolean) = viewModelScope.launch {
     dataStore.edit { prefs ->
       prefs[SettingsKeys.NOTIFICATIONS] = enabled
+    }
+  }
+
+  fun setModelUrl(url: String) = viewModelScope.launch {
+    dataStore.edit { prefs ->
+      prefs[SettingsKeys.MODEL_URL] = url
     }
   }
 }

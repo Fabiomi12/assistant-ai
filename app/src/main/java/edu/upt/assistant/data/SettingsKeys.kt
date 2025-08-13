@@ -10,4 +10,5 @@ object SettingsKeys {
   val INTERESTS = stringPreferencesKey("interests")
   val CUSTOM_INTEREST = stringPreferencesKey("custom_interest")
   val BIRTHDAY = stringPreferencesKey("birthday")
+  val MODEL_URL = stringPreferencesKey("model_url")
 }

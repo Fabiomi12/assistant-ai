@@ -39,6 +39,7 @@ fun AppNavGraph(
     val username by settingsVm.username.collectAsState(initial = "")
     val notifications by settingsVm.notificationsEnabled.collectAsState(initial = false)
     val setupDone by settingsVm.setupDone.collectAsState(initial = false)
+    val modelUrl by settingsVm.modelUrl.collectAsState(initial = ModelDownloadManager.DEFAULT_MODEL_URL)
 
     // pick start based on whether onboarding completed
     val startRoute = if (setupDone) NEW_CHAT_ROUTE else SETUP_ROUTE
@@ -61,7 +62,7 @@ fun AppNavGraph(
             NewChatScreen(
                 username = username,
                 onStartChat = { initial ->
-                    if (!modelDownloadManager.isModelAvailable()) {
+                    if (!modelDownloadManager.isModelAvailable(modelUrl)) {
                         navController.navigate(MODEL_DOWNLOAD_ROUTE)
                     } else {
                         // Generate the ID immediately:
@@ -131,7 +132,9 @@ fun AppNavGraph(
                 onUserNameChange = { settingsVm.setUsername(it) },
                 onNotificationsToggle = { settingsVm.setNotificationsEnabled(it) },
                 onBack = { navController.popBackStack() },
-                onDownloadModel = { navController.navigate(MODEL_DOWNLOAD_ROUTE) }
+                onDownloadModel = { navController.navigate(MODEL_DOWNLOAD_ROUTE) },
+                modelUrl = modelUrl,
+                onModelUrlChange = { settingsVm.setModelUrl(it) }
             )
         }
 
@@ -142,7 +145,8 @@ fun AppNavGraph(
                     navController.navigate(NEW_CHAT_ROUTE) {
                         popUpTo(MODEL_DOWNLOAD_ROUTE) { inclusive = true }
                     }
-                }
+                },
+                modelUrl = modelUrl
             )
         }
     }
