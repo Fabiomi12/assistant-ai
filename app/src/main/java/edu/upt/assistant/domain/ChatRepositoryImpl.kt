@@ -2,9 +2,12 @@ package edu.upt.assistant.domain
 
 import android.content.Context
 import android.util.Log
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import edu.upt.assistant.LlamaNative
 import edu.upt.assistant.TokenCallback
+import edu.upt.assistant.data.SettingsKeys
 import edu.upt.assistant.data.local.db.ConversationDao
 import edu.upt.assistant.data.local.db.ConversationEntity
 import edu.upt.assistant.data.local.db.MessageDao
@@ -19,8 +22,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runBlocking
 import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -34,21 +39,27 @@ class ChatRepositoryImpl @Inject constructor(
     private val convDao: ConversationDao,
     private val msgDao: MessageDao,
     private val modelDownloadManager: ModelDownloadManager,
+    private val dataStore: DataStore<Preferences>,
     @ApplicationContext private val appContext: Context
 ) : ChatRepository {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var llamaCtxDeferred: Deferred<Long>? = null
 
+    private suspend fun getModelUrl(): String {
+        return dataStore.data.map { prefs -> prefs[SettingsKeys.MODEL_URL] ?: ModelDownloadManager.DEFAULT_MODEL_URL }.first()
+    }
+
     private fun initLlamaContext(): Deferred<Long> {
         return scope.async {
             Log.d("ChatRepository", "Initializing llama context")
-            if (!modelDownloadManager.isModelAvailable()) {
+            val url = getModelUrl()
+            if (!modelDownloadManager.isModelAvailable(url)) {
                 Log.e("ChatRepository", "Model not available")
                 throw IllegalStateException("Model not available. Please download the model first.")
             }
 
-            val modelPath = modelDownloadManager.getModelPath()
+            val modelPath = modelDownloadManager.getModelPath(url)
             Log.d("ChatRepository", "Model path: $modelPath")
             val ctx = LlamaNative.llamaCreate(
                 modelPath,
@@ -102,7 +113,8 @@ class ChatRepositoryImpl @Inject constructor(
     override fun sendMessage(conversationId: String, text: String): Flow<String> = channelFlow {
         Log.d("ChatRepository", "Sending message to $conversationId: $text")
 
-        if (!modelDownloadManager.isModelAvailable()) {
+        val url = getModelUrl()
+        if (!modelDownloadManager.isModelAvailable(url)) {
             Log.e("ChatRepository", "Model not available when sending message")
             throw IllegalStateException("Model not available. Please download the model first.")
         }
@@ -192,7 +204,8 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override fun isModelReady(): Boolean {
-        val isReady = modelDownloadManager.isModelAvailable()
+        val url = runBlocking { getModelUrl() }
+        val isReady = modelDownloadManager.isModelAvailable(url)
         Log.d("ChatRepository", "Model ready check: $isReady")
         return isReady
     }

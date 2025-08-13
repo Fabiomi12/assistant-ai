@@ -32,7 +32,7 @@ import javax.inject.Inject
 data class ModelInfo(
     val isAvailable: Boolean,
     val sizeInBytes: Long = 0L,
-    val modelName: String = "Gemma 3n E4B"
+    val modelName: String = ""
 )
 
 @HiltViewModel
@@ -46,33 +46,31 @@ class SettingsModelViewModel @Inject constructor(
     private val _isDeleting = MutableStateFlow(false)
     val isDeleting: StateFlow<Boolean> = _isDeleting.asStateFlow()
 
-    init {
-        refreshModelInfo()
-    }
-
-    fun refreshModelInfo() {
-        val isAvailable = modelDownloadManager.isModelAvailable()
+    fun refreshModelInfo(modelUrl: String) {
+        val isAvailable = modelDownloadManager.isModelAvailable(modelUrl)
         val size = if (isAvailable) {
-            // Get file size if model exists
             try {
-                java.io.File(modelDownloadManager.getModelPath()).length()
+                java.io.File(modelDownloadManager.getModelPath(modelUrl)).length()
             } catch (e: Exception) {
                 0L
             }
         } else 0L
 
+        val name = modelUrl.substringAfterLast('/').substringBefore('?')
+
         _modelInfo.value = ModelInfo(
             isAvailable = isAvailable,
-            sizeInBytes = size
+            sizeInBytes = size,
+            modelName = name
         )
     }
 
-    fun deleteModel() {
+    fun deleteModel(modelUrl: String) {
         viewModelScope.launch {
             _isDeleting.value = true
             try {
-                modelDownloadManager.deleteModel()
-                refreshModelInfo()
+                modelDownloadManager.deleteModel(modelUrl)
+                refreshModelInfo(modelUrl)
             } catch (e: Exception) {
                 // Handle error
             } finally {
@@ -91,11 +89,19 @@ fun SettingsScreen(
     onNotificationsToggle: (Boolean) -> Unit,
     onBack: () -> Unit,
     onDownloadModel: () -> Unit = {},
+    modelUrl: String,
+    onModelUrlChange: (String) -> Unit,
     modelViewModel: SettingsModelViewModel = hiltViewModel()
 ) {
     val modelInfo by modelViewModel.modelInfo.collectAsState()
     val isDeleting by modelViewModel.isDeleting.collectAsState()
     var showDeleteDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(modelUrl) {
+        if (modelUrl.isNotBlank()) {
+            modelViewModel.refreshModelInfo(modelUrl)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -205,7 +211,13 @@ fun SettingsScreen(
                         )
                     }
 
-                    // Model Status
+                    OutlinedTextField(
+                        value = modelUrl,
+                        onValueChange = onModelUrlChange,
+                        label = { Text("Model URL") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
                     ModelStatusCard(
                         modelInfo = modelInfo,
                         isDeleting = isDeleting
@@ -285,7 +297,7 @@ fun SettingsScreen(
                 TextButton(
                     onClick = {
                         showDeleteDialog = false
-                        modelViewModel.deleteModel()
+                        modelViewModel.deleteModel(modelUrl)
                     }
                 ) {
                     Text("Delete", color = MaterialTheme.colorScheme.error)

@@ -27,26 +27,30 @@ class ModelDownloadViewModel @Inject constructor(
     private val _downloadState = MutableStateFlow<DownloadState>(DownloadState.NotStarted)
     val downloadState: StateFlow<DownloadState> = _downloadState.asStateFlow()
 
-    init {
-        // Check if model is already available
-        if (downloadManager.isModelAvailable()) {
-            _downloadState.value = DownloadState.Completed
+    private var currentUrl: String = ""
+
+    fun setModelUrl(url: String) {
+        currentUrl = url
+        _downloadState.value = if (downloadManager.isModelAvailable(url)) {
+            DownloadState.Completed
+        } else {
+            DownloadState.NotStarted
         }
     }
 
     fun startDownload() {
-        if (_downloadState.value is DownloadState.Downloading) return
+        val url = currentUrl
+        if (url.isBlank() || _downloadState.value is DownloadState.Downloading) return
 
         viewModelScope.launch {
             _downloadState.value = DownloadState.Downloading(DownloadProgress(0, 0, 0))
 
             try {
-                // Delete existing model first if re-downloading
-                if (downloadManager.isModelAvailable()) {
-                    downloadManager.deleteModel()
+                if (downloadManager.isModelAvailable(url)) {
+                    downloadManager.deleteModel(url)
                 }
 
-                downloadManager.downloadModel().collect { progress ->
+                downloadManager.downloadModel(url).collect { progress ->
                     _downloadState.value = DownloadState.Downloading(progress)
 
                     if (progress.percentage >= 100) {
@@ -60,8 +64,10 @@ class ModelDownloadViewModel @Inject constructor(
     }
 
     fun deleteModel() {
+        val url = currentUrl
+        if (url.isBlank()) return
         viewModelScope.launch {
-            downloadManager.deleteModel()
+            downloadManager.deleteModel(url)
             _downloadState.value = DownloadState.NotStarted
         }
     }
@@ -78,9 +84,16 @@ sealed class DownloadState {
 @Composable
 fun ModelDownloadScreen(
     onModelReady: () -> Unit,
+    modelUrl: String,
     viewModel: ModelDownloadViewModel = hiltViewModel()
 ) {
     val downloadState by viewModel.downloadState.collectAsState()
+
+    LaunchedEffect(modelUrl) {
+        if (modelUrl.isNotBlank()) {
+            viewModel.setModelUrl(modelUrl)
+        }
+    }
 
     // Navigate automatically when model is ready (only for first-time setup)
     LaunchedEffect(downloadState) {
