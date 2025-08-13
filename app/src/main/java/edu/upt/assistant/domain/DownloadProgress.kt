@@ -26,7 +26,7 @@ class ModelDownloadManager @Inject constructor(
 ) {
     
     companion object {
-        private const val MODEL_URL = "https://huggingface.co/unsloth/gemma-3n-E4B-it-GGUF/resolve/main/gemma-3n-E4B-it-Q4_1.gguf?download=true"
+        const val MODEL_URL = "https://huggingface.co/unsloth/gemma-3n-E4B-it-GGUF/resolve/main/gemma-3n-E4B-it-Q4_1.gguf?download=true"
         private const val MODEL_FILENAME = "gemma-3n-E4B-it-Q4_1.gguf"
     }
     
@@ -37,15 +37,15 @@ class ModelDownloadManager @Inject constructor(
     
     fun getModelPath(): String = modelFile.absolutePath
     
-    fun downloadModel(): Flow<DownloadProgress> = flow {
+    fun downloadModel(urlString: String = MODEL_URL): Flow<DownloadProgress> = flow {
         if (isModelAvailable()) {
             emit(DownloadProgress(modelFile.length(), modelFile.length(), 100))
             return@flow
         }
-        
+
         modelsDir.mkdirs()
-        
-        val url = URL(MODEL_URL)
+
+        val url = URL(urlString)
         val connection = url.openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
         connection.connect()

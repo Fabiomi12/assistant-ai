@@ -9,54 +9,95 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.asFlow
 import androidx.lifecycle.viewModelScope
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.await
+import androidx.work.workDataOf
 import dagger.hilt.android.lifecycle.HiltViewModel
 import edu.upt.assistant.domain.DownloadProgress
 import edu.upt.assistant.domain.ModelDownloadManager
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import edu.upt.assistant.domain.ModelDownloadWorker
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
 class ModelDownloadViewModel @Inject constructor(
-    private val downloadManager: ModelDownloadManager
+    private val downloadManager: ModelDownloadManager,
+    private val workManager: WorkManager
 ) : ViewModel() {
+
+    companion object {
+        private const val WORK_NAME = "model_download"
+    }
 
     private val _downloadState = MutableStateFlow<DownloadState>(DownloadState.NotStarted)
     val downloadState: StateFlow<DownloadState> = _downloadState.asStateFlow()
 
+    private var currentWorkId: UUID? = null
+
     init {
-        // Check if model is already available
         if (downloadManager.isModelAvailable()) {
             _downloadState.value = DownloadState.Completed
+        } else {
+            restoreWork()
+        }
+    }
+
+    private fun restoreWork() {
+        viewModelScope.launch {
+            val infos = workManager.getWorkInfosForUniqueWork(WORK_NAME).await()
+            val info = infos.firstOrNull()
+            if (info != null) {
+                currentWorkId = info.id
+                handleWorkInfo(info)
+                observeWork(info.id)
+            }
         }
     }
 
     fun startDownload() {
         if (_downloadState.value is DownloadState.Downloading) return
 
-        viewModelScope.launch {
-            _downloadState.value = DownloadState.Downloading(DownloadProgress(0, 0, 0))
+        val request = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
+            .setInputData(workDataOf(ModelDownloadWorker.INPUT_URL to ModelDownloadManager.MODEL_URL))
+            .addTag(WORK_NAME)
+            .build()
+        currentWorkId = request.id
+        workManager.enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+        observeWork(request.id)
+    }
 
-            try {
-                // Delete existing model first if re-downloading
-                if (downloadManager.isModelAvailable()) {
-                    downloadManager.deleteModel()
-                }
+    private fun observeWork(id: UUID) {
+        workManager.getWorkInfoByIdLiveData(id)
+            .asFlow()
+            .onEach { handleWorkInfo(it) }
+            .launchIn(viewModelScope)
+    }
 
-                downloadManager.downloadModel().collect { progress ->
-                    _downloadState.value = DownloadState.Downloading(progress)
-
-                    if (progress.percentage >= 100) {
-                        _downloadState.value = DownloadState.Completed
-                    }
-                }
-            } catch (e: Exception) {
-                _downloadState.value = DownloadState.Error(e.message ?: "Download failed")
+    private fun handleWorkInfo(info: WorkInfo) {
+        when (info.state) {
+            WorkInfo.State.RUNNING -> {
+                val progress = info.progress
+                val bytes = progress.getLong(ModelDownloadWorker.BYTES_DOWNLOADED, 0L)
+                val total = progress.getLong(ModelDownloadWorker.TOTAL_BYTES, 0L)
+                val percent = progress.getInt(ModelDownloadWorker.PROGRESS, 0)
+                _downloadState.value = DownloadState.Downloading(DownloadProgress(bytes, total, percent))
             }
+            WorkInfo.State.SUCCEEDED -> _downloadState.value = DownloadState.Completed
+            WorkInfo.State.FAILED -> _downloadState.value = DownloadState.Error("Download failed")
+            WorkInfo.State.CANCELLED -> _downloadState.value = DownloadState.NotStarted
+            else -> {}
         }
+    }
+
+    fun cancelDownload() {
+        currentWorkId?.let { workManager.cancelWorkById(it) }
     }
 
     fun deleteModel() {
