@@ -23,7 +23,7 @@ android {
 
         ndk {
             // only build for the ABIs you intend to support
-            abiFilters += listOf("x86_64")
+            abiFilters += listOf("arm64-v8a", "x86_64")
         }
 
         externalNativeBuild {
