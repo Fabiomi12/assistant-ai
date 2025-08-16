@@ -39,7 +39,8 @@ fun AppNavGraph(
     val username by settingsVm.username.collectAsState(initial = "")
     val notifications by settingsVm.notificationsEnabled.collectAsState(initial = false)
     val setupDone by settingsVm.setupDone.collectAsState(initial = false)
-    val modelUrl by settingsVm.modelUrl.collectAsState(initial = ModelDownloadManager.DEFAULT_MODEL_URL)
+    val modelUrls by settingsVm.modelUrls.collectAsState(initial = setOf(ModelDownloadManager.DEFAULT_MODEL_URL))
+    val activeModel by settingsVm.activeModel.collectAsState(initial = ModelDownloadManager.DEFAULT_MODEL_URL)
 
     // pick start based on whether onboarding completed
     val startRoute = if (setupDone) NEW_CHAT_ROUTE else SETUP_ROUTE
@@ -62,14 +63,11 @@ fun AppNavGraph(
             NewChatScreen(
                 username = username,
                 onStartChat = { initial ->
-                    if (!modelDownloadManager.isModelAvailable(modelUrl)) {
+                    if (!modelDownloadManager.isModelAvailable(activeModel)) {
                         navController.navigate(MODEL_DOWNLOAD_ROUTE)
                     } else {
-                        // Generate the ID immediately:
                         val newId = UUID.randomUUID().toString()
                         vm.startNewConversation(newId, initial)
-
-                        // Navigate with the initial message encoded
                         val encodedMessage = URLEncoder.encode(initial, "UTF-8")
                         navController.navigate("chat/$newId?initialMessage=$encodedMessage")
                     }
@@ -132,9 +130,11 @@ fun AppNavGraph(
                 onUserNameChange = { settingsVm.setUsername(it) },
                 onNotificationsToggle = { settingsVm.setNotificationsEnabled(it) },
                 onBack = { navController.popBackStack() },
-                onDownloadModel = { navController.navigate(MODEL_DOWNLOAD_ROUTE) },
-                modelUrl = modelUrl,
-                onModelUrlChange = { settingsVm.setModelUrl(it) }
+                modelUrls = modelUrls,
+                activeModel = activeModel,
+                onActiveModelChange = { settingsVm.setActiveModel(it) },
+                onAddModel = { settingsVm.addModelUrl(it) },
+                onRemoveModel = { settingsVm.removeModelUrl(it) }
             )
         }
 
@@ -146,7 +146,7 @@ fun AppNavGraph(
                         popUpTo(MODEL_DOWNLOAD_ROUTE) { inclusive = true }
                     }
                 },
-                modelUrl = modelUrl
+                modelUrl = activeModel
             )
         }
     }

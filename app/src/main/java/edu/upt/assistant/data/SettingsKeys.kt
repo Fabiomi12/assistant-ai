@@ -2,6 +2,7 @@ package edu.upt.assistant.data
 
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 
 object SettingsKeys {
   val USERNAME = stringPreferencesKey("user_name")
@@ -10,5 +11,6 @@ object SettingsKeys {
   val INTERESTS = stringPreferencesKey("interests")
   val CUSTOM_INTEREST = stringPreferencesKey("custom_interest")
   val BIRTHDAY = stringPreferencesKey("birthday")
-  val MODEL_URL = stringPreferencesKey("model_url")
+  val MODEL_URLS = stringSetPreferencesKey("model_urls")
+  val SELECTED_MODEL = stringPreferencesKey("selected_model")
 }
