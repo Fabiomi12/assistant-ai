@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import android.util.Log
 import edu.upt.assistant.domain.ModelDownloadManager
 import kotlinx.coroutines.launch
 
@@ -160,7 +161,13 @@ fun SettingsScreen(
               } else {
                 TextButton(
                   onClick = {
-                    scope.launch { downloadManager.downloadModel(url).collect {/* no-op */} }
+                    scope.launch {
+                      try {
+                        downloadManager.downloadModel(url).collect { /* no-op */ }
+                      } catch (e: Exception) {
+                        Log.e("SettingsScreen", "Model download failed", e)
+                      }
+                    }
                   }
                 ) {
                   Icon(Icons.Default.CloudDownload, contentDescription = null)
