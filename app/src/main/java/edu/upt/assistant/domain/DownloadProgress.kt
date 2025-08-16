@@ -43,11 +43,11 @@ class ModelDownloadManager @Inject constructor(
 
     fun isModelAvailable(id: String): Boolean = modelFile(id).exists()
 
-    fun isModelAvailable(url: String = DEFAULT_MODEL_URL): Boolean = isModelAvailable(fileNameFrom(url))
+    fun isModelAvailableUrl(url: String = DEFAULT_MODEL_URL): Boolean = isModelAvailable(fileNameFrom(url))
 
     fun getModelPath(id: String): String = modelFile(id).absolutePath
 
-    fun getModelPath(url: String = DEFAULT_MODEL_URL): String = getModelPath(fileNameFrom(url))
+    fun getModelPathUrl(url: String = DEFAULT_MODEL_URL): String = getModelPath(fileNameFrom(url))
 
     fun downloadModel(url: String = DEFAULT_MODEL_URL): Flow<DownloadProgress> = flow {
         val id = fileNameFrom(url)
@@ -94,5 +94,5 @@ class ModelDownloadManager @Inject constructor(
         }
     }
 
-    suspend fun deleteModel(url: String = DEFAULT_MODEL_URL) = deleteModel(fileNameFrom(url))
+    suspend fun deleteModelUrl(url: String = DEFAULT_MODEL_URL) = deleteModel(fileNameFrom(url))
 }

@@ -62,7 +62,7 @@ fun AppNavGraph(
             NewChatScreen(
                 username = username,
                 onStartChat = { initial ->
-                    if (!modelDownloadManager.isModelAvailable(activeModel)) {
+                    if (!modelDownloadManager.isModelAvailableUrl(activeModel)) {
                         navController.navigate(MODEL_DOWNLOAD_ROUTE)
                     } else {
                         val newId = UUID.randomUUID().toString()

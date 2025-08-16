@@ -54,12 +54,12 @@ class ChatRepositoryImpl @Inject constructor(
         return scope.async {
             Log.d("ChatRepository", "Initializing llama context")
             val url = getModelUrl()
-            if (!modelDownloadManager.isModelAvailable(url)) {
+            if (!modelDownloadManager.isModelAvailableUrl(url)) {
                 Log.e("ChatRepository", "Model not available")
                 throw IllegalStateException("Model not available. Please download the model first.")
             }
 
-            val modelPath = modelDownloadManager.getModelPath(url)
+            val modelPath = modelDownloadManager.getModelPathUrl(url)
             Log.d("ChatRepository", "Model path: $modelPath")
             val ctx = LlamaNative.llamaCreate(
                 modelPath,
@@ -114,7 +114,7 @@ class ChatRepositoryImpl @Inject constructor(
         Log.d("ChatRepository", "Sending message to $conversationId: $text")
 
         val url = getModelUrl()
-        if (!modelDownloadManager.isModelAvailable(url)) {
+        if (!modelDownloadManager.isModelAvailableUrl(url)) {
             Log.e("ChatRepository", "Model not available when sending message")
             throw IllegalStateException("Model not available. Please download the model first.")
         }
@@ -205,7 +205,7 @@ class ChatRepositoryImpl @Inject constructor(
 
     override fun isModelReady(): Boolean {
         val url = runBlocking { getModelUrl() }
-        val isReady = modelDownloadManager.isModelAvailable(url)
+        val isReady = modelDownloadManager.isModelAvailableUrl(url)
         Log.d("ChatRepository", "Model ready check: $isReady")
         return isReady
     }

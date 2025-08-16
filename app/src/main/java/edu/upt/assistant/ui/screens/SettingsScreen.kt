@@ -160,7 +160,7 @@ fun SettingsScreen(
               } else {
                 TextButton(
                   onClick = {
-                    scope.launch { downloadManager.downloadModel(url).collect() }
+                    scope.launch { downloadManager.downloadModel(url).collect {/* no-op */} }
                   }
                 ) {
                   Icon(Icons.Default.CloudDownload, contentDescription = null)

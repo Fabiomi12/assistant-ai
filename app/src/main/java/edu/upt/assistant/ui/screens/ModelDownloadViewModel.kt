@@ -31,7 +31,7 @@ class ModelDownloadViewModel @Inject constructor(
 
     fun setModelUrl(url: String) {
         currentUrl = url
-        _downloadState.value = if (downloadManager.isModelAvailable(url)) {
+        _downloadState.value = if (downloadManager.isModelAvailableUrl(url)) {
             DownloadState.Completed
         } else {
             DownloadState.NotStarted
@@ -46,7 +46,7 @@ class ModelDownloadViewModel @Inject constructor(
             _downloadState.value = DownloadState.Downloading(DownloadProgress(0, 0, 0))
 
             try {
-                if (downloadManager.isModelAvailable(url)) {
+                if (downloadManager.isModelAvailableUrl(url)) {
                     downloadManager.deleteModel(url)
                 }
 
