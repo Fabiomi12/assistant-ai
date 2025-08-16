@@ -12,14 +12,17 @@ android {
     namespace = "edu.upt.assistant"
     compileSdk = 36
 
-    defaultConfig {
-        applicationId = "edu.upt.assistant"
-        minSdk = 34
-        targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        defaultConfig {
+            applicationId = "edu.upt.assistant"
+            minSdk = 34
+            targetSdk = 36
+            versionCode = 1
+            versionName = "1.0"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+            testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+            val threadCount = project.findProperty("llmThreads") as String? ?: "2"
+            buildConfigField("int", "LLAMA_THREADS", threadCount)
 
         ndk {
             // only build for the ABIs you intend to support
