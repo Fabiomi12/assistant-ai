@@ -136,6 +136,7 @@ fun SettingsScreen(
           modelUrls.forEach { url ->
             val id = downloadManager.fileNameFrom(url)
             val isAvailable = downloadManager.isModelAvailable(id)
+            var isDownloading by remember(url) { mutableStateOf(false) }
             Row(
               verticalAlignment = Alignment.CenterVertically,
               modifier = Modifier.fillMaxWidth()
@@ -159,20 +160,27 @@ fun SettingsScreen(
                   Text("Delete")
                 }
               } else {
-                TextButton(
-                  onClick = {
-                    scope.launch {
-                      try {
-                        downloadManager.downloadModel(url).collect { /* no-op */ }
-                      } catch (e: Exception) {
-                        Log.e("SettingsScreen", "Model download failed", e)
+                if (isDownloading) {
+                  CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                } else {
+                  TextButton(
+                    onClick = {
+                      scope.launch {
+                        try {
+                          isDownloading = true
+                          downloadManager.downloadModel(url).collect { /* no-op */ }
+                        } catch (e: Exception) {
+                          Log.e("SettingsScreen", "Model download failed", e)
+                        } finally {
+                          isDownloading = false
+                        }
                       }
                     }
+                  ) {
+                    Icon(Icons.Default.CloudDownload, contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Download")
                   }
-                ) {
-                  Icon(Icons.Default.CloudDownload, contentDescription = null)
-                  Spacer(Modifier.width(4.dp))
-                  Text("Download")
                 }
               }
             }
