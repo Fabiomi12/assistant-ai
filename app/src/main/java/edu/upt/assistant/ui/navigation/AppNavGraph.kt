@@ -37,10 +37,7 @@ fun AppNavGraph(
     // collect conversations reactively
     val conversations by vm.conversations.collectAsState()
     val username by settingsVm.username.collectAsState(initial = "")
-    val notifications by settingsVm.notificationsEnabled.collectAsState(initial = false)
     val setupDone by settingsVm.setupDone.collectAsState(initial = false)
-    val modelUrls by settingsVm.modelUrls.collectAsState(initial = setOf(ModelDownloadManager.DEFAULT_MODEL_URL))
-    val activeModel by settingsVm.activeModel.collectAsState(initial = ModelDownloadManager.DEFAULT_MODEL_URL)
 
     // pick start based on whether onboarding completed
     val startRoute = if (setupDone) NEW_CHAT_ROUTE else SETUP_ROUTE
@@ -60,6 +57,8 @@ fun AppNavGraph(
 
         // 1) Setup / New Chat Screen
         composable(NEW_CHAT_ROUTE) {
+            val activeModel by settingsVm.activeModel.collectAsState(initial = ModelDownloadManager.DEFAULT_MODEL_URL)
+
             NewChatScreen(
                 username = username,
                 onStartChat = { initial ->
@@ -123,6 +122,8 @@ fun AppNavGraph(
             val settingsVm: SettingsViewModel = hiltViewModel()
             val username by settingsVm.username.collectAsState()
             val notificationsEnabled by settingsVm.notificationsEnabled.collectAsState()
+            val modelUrls by settingsVm.modelUrls.collectAsState(initial = setOf(ModelDownloadManager.DEFAULT_MODEL_URL))
+            val activeModel by settingsVm.activeModel.collectAsState(initial = ModelDownloadManager.DEFAULT_MODEL_URL)
 
             SettingsScreen(
                 username = username,
@@ -140,6 +141,8 @@ fun AppNavGraph(
 
         // 5) Model Download Screen
         composable(MODEL_DOWNLOAD_ROUTE) {
+            val activeModel by settingsVm.activeModel.collectAsState(initial = ModelDownloadManager.DEFAULT_MODEL_URL)
+
             ModelDownloadScreen(
                 onModelReady = {
                     navController.navigate(NEW_CHAT_ROUTE) {
