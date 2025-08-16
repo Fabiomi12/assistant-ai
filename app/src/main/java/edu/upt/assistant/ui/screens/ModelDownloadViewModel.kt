@@ -20,11 +20,13 @@ class ModelDownloadViewModel @Inject constructor(
     private val _downloadState = MutableStateFlow<DownloadState>(DownloadState.NotStarted)
     val downloadState: StateFlow<DownloadState> = _downloadState.asStateFlow()
 
-    private var currentUrl: String = ""
+    private val _currentUrl = MutableStateFlow("")
+    val currentUrl: StateFlow<String> = _currentUrl.asStateFlow()
+
     private var downloadJob: Job? = null
 
     fun setModelUrl(url: String) {
-        currentUrl = url
+        _currentUrl.value = url
         _downloadState.value = if (downloadManager.isModelAvailableUrl(url)) {
             DownloadState.Completed
         } else {
@@ -33,7 +35,7 @@ class ModelDownloadViewModel @Inject constructor(
     }
 
     fun startDownload() {
-        val url = currentUrl
+        val url = _currentUrl.value
         if (url.isBlank() || _downloadState.value is DownloadState.Downloading) return
 
         downloadJob?.cancel()
@@ -59,11 +61,12 @@ class ModelDownloadViewModel @Inject constructor(
     }
 
     fun deleteModel() {
-        val url = currentUrl
+        val url = _currentUrl.value
         if (url.isBlank()) return
         viewModelScope.launch {
             downloadManager.deleteModel(url)
             _downloadState.value = DownloadState.NotStarted
+            _currentUrl.value = ""
         }
     }
 
