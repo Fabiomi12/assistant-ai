@@ -10,16 +10,13 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import edu.upt.assistant.domain.ModelDownloadManager
-import kotlinx.coroutines.launch
+import androidx.hilt.navigation.compose.hiltViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,9 +32,9 @@ fun SettingsScreen(
   onAddModel: (String) -> Unit,
   onRemoveModel: (String) -> Unit,
 ) {
-  val context = LocalContext.current
-  val downloadManager = remember { ModelDownloadManager(context.applicationContext) }
-  val scope = rememberCoroutineScope()
+  val downloadViewModel: ModelDownloadViewModel = hiltViewModel()
+  val downloadState by downloadViewModel.downloadState.collectAsState()
+  val currentDownloadUrl by downloadViewModel.currentUrl.collectAsState()
   var newModelUrl by remember { mutableStateOf("") }
 
   Scaffold(
@@ -133,39 +130,82 @@ fun SettingsScreen(
           }
 
           modelUrls.forEach { url ->
-            val id = downloadManager.fileNameFrom(url)
-            val isAvailable = downloadManager.isModelAvailable(id)
-            Row(
-              verticalAlignment = Alignment.CenterVertically,
-              modifier = Modifier.fillMaxWidth()
-            ) {
-              RadioButton(
-                selected = activeModel == url,
-                onClick = { onActiveModelChange(url) }
-              )
-              Text(text = id, modifier = Modifier.weight(1f))
-              if (isAvailable) {
-                TextButton(
-                  onClick = {
-                    scope.launch {
-                      downloadManager.deleteModel(id)
-                      onRemoveModel(url)
+            val id = downloadViewModel.fileNameFrom(url)
+            val isAvailable = downloadViewModel.isModelAvailable(url) ||
+              (currentDownloadUrl == url && downloadState is DownloadState.Completed)
+
+            Column(modifier = Modifier.fillMaxWidth()) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+              ) {
+                RadioButton(
+                  selected = activeModel == url,
+                  onClick = { onActiveModelChange(url) }
+                )
+                Text(text = id, modifier = Modifier.weight(1f))
+                when {
+                  currentDownloadUrl == url && downloadState is DownloadState.Downloading -> {
+                    // No trailing action while downloading
+                  }
+                  currentDownloadUrl == url && downloadState is DownloadState.Error -> {
+                    TextButton(onClick = { downloadViewModel.startDownload() }) {
+                      Icon(Icons.Default.CloudDownload, contentDescription = null)
+                      Spacer(Modifier.width(4.dp))
+                      Text("Retry")
                     }
                   }
-                ) {
-                  Icon(Icons.Default.Delete, contentDescription = null)
-                  Spacer(Modifier.width(4.dp))
-                  Text("Delete")
-                }
-              } else {
-                TextButton(
-                  onClick = {
-                    scope.launch { downloadManager.downloadModel(url).collect() }
+                  isAvailable -> {
+                    TextButton(
+                      onClick = {
+                        downloadViewModel.setModelUrl(url)
+                        downloadViewModel.deleteModel()
+                        onRemoveModel(url)
+                      }
+                    ) {
+                      Icon(Icons.Default.Delete, contentDescription = null)
+                      Spacer(Modifier.width(4.dp))
+                      Text("Delete")
+                    }
                   }
-                ) {
-                  Icon(Icons.Default.CloudDownload, contentDescription = null)
-                  Spacer(Modifier.width(4.dp))
-                  Text("Download")
+                  else -> {
+                    TextButton(
+                      onClick = {
+                        downloadViewModel.setModelUrl(url)
+                        downloadViewModel.startDownload()
+                      }
+                    ) {
+                      Icon(Icons.Default.CloudDownload, contentDescription = null)
+                      Spacer(Modifier.width(4.dp))
+                      Text("Download")
+                    }
+                  }
+                }
+              }
+              if (currentDownloadUrl == url) {
+                when (val state = downloadState) {
+                  is DownloadState.Downloading -> {
+                    LinearProgressIndicator(
+                      progress = state.progress.percentage / 100f,
+                      modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp)
+                    )
+                    Text(
+                      text = "${state.progress.percentage}%",
+                      style = MaterialTheme.typography.bodySmall,
+                      modifier = Modifier.padding(top = 4.dp)
+                    )
+                  }
+                  is DownloadState.Error -> {
+                    Text(
+                      text = state.message,
+                      color = MaterialTheme.colorScheme.error,
+                      style = MaterialTheme.typography.bodySmall,
+                      modifier = Modifier.padding(top = 4.dp)
+                    )
+                  }
+                  else -> {}
                 }
               }
             }
