@@ -32,19 +32,26 @@ class ModelDownloadManager @Inject constructor(
 
     private val modelsDir = File(context.filesDir, "models")
 
-    private fun fileNameFrom(url: String): String {
+    fun fileNameFrom(url: String): String {
         val path = URI(url).path
         return path.substringAfterLast('/')
     }
 
-    private fun modelFile(url: String): File = File(modelsDir, fileNameFrom(url))
+    private fun modelFile(id: String): File = File(modelsDir, id)
 
-    fun isModelAvailable(url: String = DEFAULT_MODEL_URL): Boolean = modelFile(url).exists()
+    fun listModels(): List<String> = modelsDir.list()?.toList() ?: emptyList()
 
-    fun getModelPath(url: String = DEFAULT_MODEL_URL): String = modelFile(url).absolutePath
+    fun isModelAvailable(id: String): Boolean = modelFile(id).exists()
+
+    fun isModelAvailable(url: String = DEFAULT_MODEL_URL): Boolean = isModelAvailable(fileNameFrom(url))
+
+    fun getModelPath(id: String): String = modelFile(id).absolutePath
+
+    fun getModelPath(url: String = DEFAULT_MODEL_URL): String = getModelPath(fileNameFrom(url))
 
     fun downloadModel(url: String = DEFAULT_MODEL_URL): Flow<DownloadProgress> = flow {
-        val file = modelFile(url)
+        val id = fileNameFrom(url)
+        val file = modelFile(id)
         if (file.exists()) {
             emit(DownloadProgress(file.length(), file.length(), 100))
             return@flow
@@ -80,10 +87,12 @@ class ModelDownloadManager @Inject constructor(
         connection.disconnect()
     }.flowOn(Dispatchers.IO)
 
-    suspend fun deleteModel(url: String = DEFAULT_MODEL_URL) = withContext(Dispatchers.IO) {
-        val file = modelFile(url)
+    suspend fun deleteModel(id: String) = withContext(Dispatchers.IO) {
+        val file = modelFile(id)
         if (file.exists()) {
             file.delete()
         }
     }
+
+    suspend fun deleteModel(url: String = DEFAULT_MODEL_URL) = deleteModel(fileNameFrom(url))
 }

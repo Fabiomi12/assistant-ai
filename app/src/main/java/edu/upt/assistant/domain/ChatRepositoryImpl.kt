@@ -47,7 +47,7 @@ class ChatRepositoryImpl @Inject constructor(
     private var llamaCtxDeferred: Deferred<Long>? = null
 
     private suspend fun getModelUrl(): String {
-        return dataStore.data.map { prefs -> prefs[SettingsKeys.MODEL_URL] ?: ModelDownloadManager.DEFAULT_MODEL_URL }.first()
+        return dataStore.data.map { prefs -> prefs[SettingsKeys.SELECTED_MODEL] ?: ModelDownloadManager.DEFAULT_MODEL_URL }.first()
     }
 
     private fun initLlamaContext(): Deferred<Long> {

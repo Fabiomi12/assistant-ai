@@ -31,8 +31,12 @@ class SettingsViewModel @Inject constructor(
     .map { prefs -> prefs[SettingsKeys.SETUP_DONE] ?: false }
     .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-  val modelUrl: StateFlow<String> = dataStore.data
-    .map { prefs -> prefs[SettingsKeys.MODEL_URL] ?: ModelDownloadManager.DEFAULT_MODEL_URL }
+  val modelUrls: StateFlow<Set<String>> = dataStore.data
+    .map { prefs -> prefs[SettingsKeys.MODEL_URLS] ?: setOf(ModelDownloadManager.DEFAULT_MODEL_URL) }
+    .stateIn(viewModelScope, SharingStarted.Eagerly, setOf(ModelDownloadManager.DEFAULT_MODEL_URL))
+
+  val activeModel: StateFlow<String> = dataStore.data
+    .map { prefs -> prefs[SettingsKeys.SELECTED_MODEL] ?: ModelDownloadManager.DEFAULT_MODEL_URL }
     .stateIn(viewModelScope, SharingStarted.Eagerly, ModelDownloadManager.DEFAULT_MODEL_URL)
 
   // Update username
@@ -49,9 +53,27 @@ class SettingsViewModel @Inject constructor(
     }
   }
 
-  fun setModelUrl(url: String) = viewModelScope.launch {
+  fun setActiveModel(url: String) = viewModelScope.launch {
     dataStore.edit { prefs ->
-      prefs[SettingsKeys.MODEL_URL] = url
+      prefs[SettingsKeys.SELECTED_MODEL] = url
+    }
+  }
+
+  fun addModelUrl(url: String) = viewModelScope.launch {
+    dataStore.edit { prefs ->
+      val current = prefs[SettingsKeys.MODEL_URLS] ?: emptySet()
+      prefs[SettingsKeys.MODEL_URLS] = current + url
+    }
+  }
+
+  fun removeModelUrl(url: String) = viewModelScope.launch {
+    dataStore.edit { prefs ->
+      val current = prefs[SettingsKeys.MODEL_URLS] ?: emptySet()
+      prefs[SettingsKeys.MODEL_URLS] = current - url
+      if (prefs[SettingsKeys.SELECTED_MODEL] == url) {
+        prefs[SettingsKeys.SELECTED_MODEL] = current.firstOrNull { it != url }
+          ?: ModelDownloadManager.DEFAULT_MODEL_URL
+      }
     }
   }
 }
