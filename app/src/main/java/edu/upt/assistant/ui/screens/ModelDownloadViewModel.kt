@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import edu.upt.assistant.domain.DownloadProgress
 import edu.upt.assistant.domain.ModelDownloadManager
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +21,7 @@ class ModelDownloadViewModel @Inject constructor(
     val downloadState: StateFlow<DownloadState> = _downloadState.asStateFlow()
 
     private var currentUrl: String = ""
+    private var downloadJob: Job? = null
 
     fun setModelUrl(url: String) {
         currentUrl = url
@@ -34,7 +36,8 @@ class ModelDownloadViewModel @Inject constructor(
         val url = currentUrl
         if (url.isBlank() || _downloadState.value is DownloadState.Downloading) return
 
-        viewModelScope.launch {
+        downloadJob?.cancel()
+        downloadJob = viewModelScope.launch {
             _downloadState.value = DownloadState.Downloading(DownloadProgress(0, 0, 0))
 
             try {
@@ -62,6 +65,11 @@ class ModelDownloadViewModel @Inject constructor(
             downloadManager.deleteModel(url)
             _downloadState.value = DownloadState.NotStarted
         }
+    }
+
+    override fun onCleared() {
+        downloadJob?.cancel()
+        super.onCleared()
     }
 }
 
