@@ -154,7 +154,7 @@ class ChatRepositoryImpl @Inject constructor(
                         TokenCallback { token ->
                             Log.d("ChatRepository", "Generated token: $token")
 
-                            val normalized = token.replace("▁", " ")
+                            val normalized = normalizeToken(token)
                             val output = if (builder.isEmpty()) normalized.trimStart() else normalized
 
                             val success = trySend(output).isSuccess
@@ -211,6 +211,14 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     fun getDownloadManager(): ModelDownloadManager = modelDownloadManager
+
+    private fun normalizeToken(token: String): String {
+        return token
+            .replace("▁", " ")            // SentencePiece space
+            .replace("Ġ", " ")            // BPE space
+            .replace("Ċ", "\n")          // BPE newline
+            .replace("Äł", " ")           // Qwen space artefact
+    }
 
     // -- Helpers to convert between Entity ⇄ Domain --
     private fun ConversationEntity.toDomain() =
