@@ -4,7 +4,7 @@ enum class Role { SYSTEM, USER, ASSISTANT }
 data class Message(val role: Role, val content: String)
 
 class ConversationManager(
-    private val systemPrompt: String = "You are a helpful assistant. Help the user with whatever they want to know. Answer questions concisely. Answer with as few words as possible.",
+    private val systemPrompt: String = "You are a helpful assistant.",
     private val maxTokens: Int = 2048
 ) {
     private val history = ArrayDeque<Message>()
