@@ -38,7 +38,7 @@ Only respond as the Assistant - do not continue the conversation or create addit
             sb.append(prefix).append(msg.content).append("\n")
         }
 
-        // Add current user message
+        // Add current user message (can include RAG context for LLM)
         sb.append("User: ").append(text).append("\n")
         sb.append("Assistant:")
 

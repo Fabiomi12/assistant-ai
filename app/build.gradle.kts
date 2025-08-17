@@ -6,6 +6,7 @@ plugins {
     kotlin("kapt")
     alias(libs.plugins.ksp)
     alias(libs.plugins.dagger.hilt)
+    kotlin("plugin.serialization") version "1.9.0"
 }
 
 android {
@@ -111,6 +112,9 @@ dependencies {
     // Tensorflow
     implementation(libs.tensorflow.lite)
     implementation(libs.tensorflow.lite.support)
+    
+    // Kotlinx Serialization
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
 
 }
 

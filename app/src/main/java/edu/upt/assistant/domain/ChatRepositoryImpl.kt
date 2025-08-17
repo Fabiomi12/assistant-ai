@@ -246,6 +246,11 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     fun getDownloadManager(): ModelDownloadManager = modelDownloadManager
+    
+    // Public methods for RAG repository access
+    suspend fun getLlamaContextPublic(): Long = getLlamaContext()
+    
+    fun normalizeTokenPublic(token: String): String = normalizeToken(token)
 
     private fun normalizeToken(token: String): String {
         return token

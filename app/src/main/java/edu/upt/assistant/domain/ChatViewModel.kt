@@ -31,6 +31,7 @@ class ChatViewModel @Inject constructor(
 
     init {
         Log.d("ChatViewModel", "ChatViewModel created")
+        Log.d("ChatViewModel", "Repository type: ${repo::class.java.simpleName}")
     }
 
     val conversations: StateFlow<List<Conversation>> =

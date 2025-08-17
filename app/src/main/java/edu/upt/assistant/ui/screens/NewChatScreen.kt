@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,7 +18,8 @@ fun NewChatScreen(
     username: String,
     onStartChat: (String) -> Unit,
     onHistoryClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    onDocumentsClick: () -> Unit
 ) {
     var inputText by remember { mutableStateOf("") }
 
@@ -26,6 +28,12 @@ fun NewChatScreen(
             TopAppBar(
                 title = { Text("Assistant") },
                 actions = {
+                    IconButton(onClick = onDocumentsClick) {
+                        Icon(
+                            imageVector = Icons.Default.Description,
+                            contentDescription = "Documents"
+                        )
+                    }
                     IconButton(onClick = onHistoryClick) {
                         Icon(
                             imageVector = Icons.Default.History,
@@ -84,6 +92,7 @@ fun NewChatScreenPreview() {
         username = "User",
         onStartChat = {},
         onHistoryClick = {},
-        onSettingsClick = {}
+        onSettingsClick = {},
+        onDocumentsClick = {}
     )
 }

@@ -13,6 +13,7 @@ import dagger.hilt.components.SingletonComponent
 import edu.upt.assistant.data.local.db.AppDatabase
 import edu.upt.assistant.data.local.db.ConversationDao
 import edu.upt.assistant.data.local.db.MessageDao
+import edu.upt.assistant.data.local.db.DocumentDao
 import java.util.prefs.Preferences
 import javax.inject.Singleton
 
@@ -23,7 +24,7 @@ object DataModule {
   @Provides @Singleton
   fun provideDatabase(@ApplicationContext ctx: Context): AppDatabase =
     Room.databaseBuilder(ctx, AppDatabase::class.java, "assistant_db")
-      .fallbackToDestructiveMigration(false)
+      .fallbackToDestructiveMigration(true)
       .build()
 
   @Provides
@@ -33,6 +34,10 @@ object DataModule {
   @Provides
   fun provideMessageDao(db: AppDatabase): MessageDao =
     db.messageDao()
+
+  @Provides
+  fun provideDocumentDao(db: AppDatabase): DocumentDao =
+    db.documentDao()
 
   @Provides
   @Singleton

@@ -20,6 +20,7 @@ import edu.upt.assistant.ui.screens.NewChatScreen
 import edu.upt.assistant.ui.screens.ModelDownloadScreen
 import edu.upt.assistant.ui.screens.SettingsScreen
 import edu.upt.assistant.ui.screens.SetupRoute
+import edu.upt.assistant.ui.screens.DocumentsScreen
 import java.net.URLEncoder
 import java.net.URLDecoder
 import java.util.UUID
@@ -72,7 +73,8 @@ fun AppNavGraph(
                     }
                 },
                 onHistoryClick = { navController.navigate(HISTORY_ROUTE) },
-                onSettingsClick = { navController.navigate(SETTINGS_ROUTE) }
+                onSettingsClick = { navController.navigate(SETTINGS_ROUTE) },
+                onDocumentsClick = { navController.navigate(DOCUMENTS_ROUTE) }
             )
         }
 
@@ -155,6 +157,13 @@ fun AppNavGraph(
                 },
                 modelUrl = activeModel,
                 settingsViewModel = settingsVm
+            )
+        }
+
+        // 6) Documents Screen
+        composable(DOCUMENTS_ROUTE) {
+            DocumentsScreen(
+                onNavigateBack = { navController.popBackStack() }
             )
         }
     }
