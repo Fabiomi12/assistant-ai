@@ -107,12 +107,12 @@ fun AppNavGraph(
             val initialMessage = backStackEntry.arguments?.getString("initialMessage")
 
             if (convId != null) {
+                val decodedInitial = initialMessage?.let { URLDecoder.decode(it, "UTF-8") }
                 ChatRoute(
                     conversationId = convId,
                     navController = navController,
-                    initialMessage = initialMessage?.let {
-                        URLDecoder.decode(it, "UTF-8")
-                    }
+                    vm = vm,
+                    initialMessage = decodedInitial
                 )
             }
         }
