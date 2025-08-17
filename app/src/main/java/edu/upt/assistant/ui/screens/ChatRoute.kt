@@ -20,7 +20,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import edu.upt.assistant.domain.ChatViewModel
 import edu.upt.assistant.ui.navigation.HISTORY_ROUTE
@@ -33,7 +32,7 @@ import kotlinx.coroutines.flow.filter
 fun ChatRoute(
     conversationId: String,
     navController: NavHostController,
-    vm: ChatViewModel = hiltViewModel(),
+    vm: ChatViewModel,
     initialMessage: String? = null
 ) {
     // Collect the messages from the VM
