@@ -80,11 +80,10 @@ class ChatViewModel @Inject constructor(
      */
     fun startNewConversation(conversationId: String, initialText: String) {
         Log.d("ChatViewModel", "Starting new conversation: $conversationId with message: $initialText")
+        _currentStreamingConversation.value = conversationId
 
         viewModelScope.launch {
             try {
-                _currentStreamingConversation.value = conversationId
-
                 // 1) Create conversation metadata
                 val timestamp = currentTimeLabel()
                 repo.createConversation(
@@ -123,11 +122,10 @@ class ChatViewModel @Inject constructor(
      */
     fun sendMessage(conversationId: String, text: String) {
         Log.d("ChatViewModel", "Sending message to $conversationId: $text")
+        _currentStreamingConversation.value = conversationId
 
         viewModelScope.launch {
             try {
-                _currentStreamingConversation.value = conversationId
-
                 repo.sendMessage(conversationId, text)
                     .flowOn(Dispatchers.Default)
                     .onEach { token ->
