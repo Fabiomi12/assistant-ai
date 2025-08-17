@@ -49,7 +49,7 @@ fun ChatRoute(
     var streamingMessage by remember { mutableStateOf("") }
 
     // Collect tokens from the SharedFlow when streaming this conversation
-    LaunchedEffect(conversationId) {
+    LaunchedEffect(conversationId, currentStreamingConversation) {
         vm.streamedTokens
             .filter { currentStreamingConversation == conversationId }
             .collect { token ->
