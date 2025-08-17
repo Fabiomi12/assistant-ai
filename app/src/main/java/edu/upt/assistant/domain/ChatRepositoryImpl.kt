@@ -139,8 +139,8 @@ class ChatRepositoryImpl @Inject constructor(
             // 2) prepare prompt
             val manager = managers.getOrPut(conversationId) { ConversationManager() }
             manager.appendUser(text)
-            val prompt = manager.buildPrompt()
-            Log.d("ChatRepository", "Prompt prepared: ${prompt.take(100)}...")
+            val prompt = manager.buildPrompt(text)
+            Log.d("ChatRepository", "Prompt prepared: $prompt")
 
             // 3) stream tokens
             val builder = StringBuilder()

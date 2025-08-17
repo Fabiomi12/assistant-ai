@@ -69,17 +69,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun isModelReadySync(): Boolean {
-        return try {
-            val isReady = (repo as? ChatRepositoryImpl)?.isModelReady() ?: false
-            Log.d("ChatViewModel", "Model ready sync: $isReady")
-            isReady
-        } catch (e: Exception) {
-            Log.e("ChatViewModel", "Error checking model status sync", e)
-            false
-        }
-    }
-
     fun messagesFor(conversationId: String): Flow<List<Message>> {
         Log.d("ChatViewModel", "Getting messages for conversation: $conversationId")
         return repo.getMessages(conversationId)

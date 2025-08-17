@@ -4,26 +4,24 @@ enum class Role { SYSTEM, USER, ASSISTANT }
 data class Message(val role: Role, val content: String)
 
 class ConversationManager(
-    private val systemPrompt: String = "You are a helpful assistant.",
+    private val systemPrompt: String = "You are a helpful assistant. Help the user with whatever they want to know. Answer questions concisely. Answer with as few words as possible.",
     private val maxTokens: Int = 2048
 ) {
     private val history = ArrayDeque<Message>()
 
     fun appendUser(text: String) {
         history += Message(Role.USER, text)
-        trimIfNeeded()
+        trimIfNeeded(text)
     }
 
     fun appendAssistant(text: String) {
         history += Message(Role.ASSISTANT, text)
-        trimIfNeeded()
+        trimIfNeeded(text)
     }
 
-    fun buildPrompt(): String {
+    fun buildPrompt(text: String): String {
         val sb = StringBuilder()
-            .append("<<SYSTEM>>\n")
             .append(systemPrompt).append("\n\n")
-            .append("<<CONVERSATION>>\n")
         history.forEach { msg ->
             val prefix = when (msg.role) {
                 Role.USER      -> "User: "
@@ -32,12 +30,14 @@ class ConversationManager(
             }
             sb.append(prefix).append(msg.content).append("\n")
         }
+        sb.append("\n")
+        sb.append("User: ").append(text).append("\n")
         sb.append("Assistant:")
         return sb.toString()
     }
 
-    private fun trimIfNeeded() {
-        fun estimateTokens() = buildPrompt().length / 4
+    private fun trimIfNeeded(text: String) {
+        fun estimateTokens() = buildPrompt(text).length / 4
         while (history.size > 2 && estimateTokens() > maxTokens) {
             // drop oldest USER+ASSISTANT pair
             history.removeFirst()

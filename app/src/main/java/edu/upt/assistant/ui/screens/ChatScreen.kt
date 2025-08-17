@@ -56,8 +56,6 @@ fun ChatScreen(
     // Set the initial message when the screen is first composed
     LaunchedEffect(initialMessage) {
         if (initialMessage != null && inputText.isEmpty()) {
-            inputText = initialMessage
-            // Auto-send the initial message
             onSend(initialMessage)
         }
     }
