@@ -57,12 +57,12 @@ fun AppNavGraph(
 
         // 1) Setup / New Chat Screen
         composable(NEW_CHAT_ROUTE) {
-            val activeModel by settingsVm.activeModel.collectAsState(initial = ModelDownloadManager.DEFAULT_MODEL_URL)
+            val activeModel by settingsVm.activeModelUrl.collectAsState(initial = ModelDownloadManager.DEFAULT_MODEL_URL)
 
             NewChatScreen(
                 username = username,
                 onStartChat = { initial ->
-                    if (!modelDownloadManager.isModelAvailableUrl(activeModel)) {
+                    if (!modelDownloadManager.isModelAvailable(activeModel)) {
                         navController.navigate(MODEL_DOWNLOAD_ROUTE)
                     } else {
                         val newId = UUID.randomUUID().toString()
@@ -120,10 +120,10 @@ fun AppNavGraph(
         // 4) Settings Screen
         composable(SETTINGS_ROUTE) {
             val settingsVm: SettingsViewModel = hiltViewModel()
+
             val username by settingsVm.username.collectAsState()
             val notificationsEnabled by settingsVm.notificationsEnabled.collectAsState()
-            val modelUrls by settingsVm.modelUrls.collectAsState(initial = setOf(ModelDownloadManager.DEFAULT_MODEL_URL))
-            val activeModel by settingsVm.activeModel.collectAsState(initial = ModelDownloadManager.DEFAULT_MODEL_URL)
+            val modelManagementState by settingsVm.modelManagementState.collectAsState()
 
             SettingsScreen(
                 username = username,
@@ -131,17 +131,21 @@ fun AppNavGraph(
                 onUserNameChange = { settingsVm.setUsername(it) },
                 onNotificationsToggle = { settingsVm.setNotificationsEnabled(it) },
                 onBack = { navController.popBackStack() },
-                modelUrls = modelUrls,
-                activeModel = activeModel,
+                modelManagementState = modelManagementState,
                 onActiveModelChange = { settingsVm.setActiveModel(it) },
                 onAddModel = { settingsVm.addModelUrl(it) },
-                onRemoveModel = { settingsVm.removeModelUrl(it) }
+                onRemoveModel = { settingsVm.removeModelUrl(it) },
+                onStartDownload = { settingsVm.startDownload(it) },
+                onCancelDownload = { settingsVm.cancelDownload(it) },
+                onDeleteModel = { settingsVm.deleteModel(it) },
+                downloadManager = settingsVm.getDownloadManager()
             )
         }
 
         // 5) Model Download Screen
         composable(MODEL_DOWNLOAD_ROUTE) {
-            val activeModel by settingsVm.activeModel.collectAsState(initial = ModelDownloadManager.DEFAULT_MODEL_URL)
+            val settingsVm: SettingsViewModel = hiltViewModel()
+            val activeModel by settingsVm.activeModelUrl.collectAsState()
 
             ModelDownloadScreen(
                 onModelReady = {
@@ -149,7 +153,8 @@ fun AppNavGraph(
                         popUpTo(MODEL_DOWNLOAD_ROUTE) { inclusive = true }
                     }
                 },
-                modelUrl = activeModel
+                modelUrl = activeModel,
+                settingsViewModel = settingsVm
             )
         }
     }

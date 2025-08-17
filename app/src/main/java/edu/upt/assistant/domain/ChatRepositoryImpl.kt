@@ -22,15 +22,16 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.lang.Runtime
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -46,6 +47,9 @@ class ChatRepositoryImpl @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var llamaCtxDeferred: Deferred<Long>? = null
 
+    init {
+        observeModelChanges()
+    }
     private suspend fun getModelUrl(): String {
         return dataStore.data.map { prefs -> prefs[SettingsKeys.SELECTED_MODEL] ?: ModelDownloadManager.DEFAULT_MODEL_URL }.first()
     }
@@ -54,12 +58,12 @@ class ChatRepositoryImpl @Inject constructor(
         return scope.async {
             Log.d("ChatRepository", "Initializing llama context")
             val url = getModelUrl()
-            if (!modelDownloadManager.isModelAvailableUrl(url)) {
+            if (!modelDownloadManager.isModelAvailable(url)) {
                 Log.e("ChatRepository", "Model not available")
                 throw IllegalStateException("Model not available. Please download the model first.")
             }
 
-            val modelPath = modelDownloadManager.getModelPathUrl(url)
+            val modelPath = modelDownloadManager.getModelPath(url)
             Log.d("ChatRepository", "Model path: $modelPath")
             val ctx = LlamaNative.llamaCreate(
                 modelPath,
@@ -78,6 +82,37 @@ class ChatRepositoryImpl @Inject constructor(
     private suspend fun getLlamaContext(): Long {
         val deferred = llamaCtxDeferred ?: initLlamaContext()
         return deferred.await()
+    }
+
+    private fun observeModelChanges() {
+        scope.launch {
+            dataStore.data
+                .map { prefs -> prefs[SettingsKeys.SELECTED_MODEL] ?: ModelDownloadManager.DEFAULT_MODEL_URL }
+                .distinctUntilChanged()
+                .collect { newModelUrl ->
+                    Log.d("ChatRepository", "Model changed to $newModelUrl, resetting llama context")
+                    destroyLlamaContext()
+                }
+        }
+    }
+
+    private fun destroyLlamaContext() {
+        llamaCtxDeferred?.let {
+            if (it.isCompleted) {
+                val ctx = runBlocking { it.await() }
+                if (ctx != 0L) {
+                    try {
+                        LlamaNative.llamaFree(ctx)
+                        Log.d("ChatRepository", "Destroyed old llama context: $ctx")
+                    } catch (e: Exception) {
+                        Log.e("ChatRepository", "Failed to destroy llama context", e)
+                    }
+                }
+            }
+            // Cancel the deferred if still active
+            it.cancel()
+        }
+        llamaCtxDeferred = null
     }
 
     // Keep a ConversationManager per conversation
@@ -114,7 +149,7 @@ class ChatRepositoryImpl @Inject constructor(
         Log.d("ChatRepository", "Sending message to $conversationId: $text")
 
         val url = getModelUrl()
-        if (!modelDownloadManager.isModelAvailableUrl(url)) {
+        if (!modelDownloadManager.isModelAvailable(url)) {
             Log.e("ChatRepository", "Model not available when sending message")
             throw IllegalStateException("Model not available. Please download the model first.")
         }
@@ -205,7 +240,7 @@ class ChatRepositoryImpl @Inject constructor(
 
     override fun isModelReady(): Boolean {
         val url = runBlocking { getModelUrl() }
-        val isReady = modelDownloadManager.isModelAvailableUrl(url)
+        val isReady = modelDownloadManager.isModelAvailable(url)
         Log.d("ChatRepository", "Model ready check: $isReady")
         return isReady
     }
