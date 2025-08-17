@@ -55,7 +55,10 @@ class SettingsViewModel @Inject constructor(
 
   fun setActiveModel(url: String) = viewModelScope.launch {
     dataStore.edit { prefs ->
-      prefs[SettingsKeys.SELECTED_MODEL] = url
+      val urls = prefs[SettingsKeys.MODEL_URLS] ?: emptySet()
+      if (urls.contains(url)) {
+        prefs[SettingsKeys.SELECTED_MODEL] = url
+      }
     }
   }
 
@@ -69,9 +72,10 @@ class SettingsViewModel @Inject constructor(
   fun removeModelUrl(url: String) = viewModelScope.launch {
     dataStore.edit { prefs ->
       val current = prefs[SettingsKeys.MODEL_URLS] ?: emptySet()
-      prefs[SettingsKeys.MODEL_URLS] = current - url
+      val updated = current - url
+      prefs[SettingsKeys.MODEL_URLS] = updated
       if (prefs[SettingsKeys.SELECTED_MODEL] == url) {
-        prefs[SettingsKeys.SELECTED_MODEL] = current.firstOrNull { it != url }
+        prefs[SettingsKeys.SELECTED_MODEL] = updated.firstOrNull()
           ?: ModelDownloadManager.DEFAULT_MODEL_URL
       }
     }

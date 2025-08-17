@@ -137,6 +137,7 @@ fun SettingsScreen(
             val id = downloadManager.fileNameFrom(url)
             val isAvailable = downloadManager.isModelAvailable(id)
             var isDownloading by remember(url) { mutableStateOf(false) }
+            var progress by remember(url) { mutableStateOf(0) }
             Row(
               verticalAlignment = Alignment.CenterVertically,
               modifier = Modifier.fillMaxWidth()
@@ -161,14 +162,20 @@ fun SettingsScreen(
                 }
               } else {
                 if (isDownloading) {
-                  CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                  Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    LinearProgressIndicator(progress = progress / 100f, modifier = Modifier.width(80.dp))
+                    Spacer(Modifier.height(4.dp))
+                    Text("$progress%")
+                  }
                 } else {
                   TextButton(
                     onClick = {
                       scope.launch {
                         try {
                           isDownloading = true
-                          downloadManager.downloadModel(url).collect { /* no-op */ }
+                          downloadManager.downloadModel(url).collect { prog ->
+                            progress = prog.percentage
+                          }
                         } catch (e: Exception) {
                           Log.e("SettingsScreen", "Model download failed", e)
                         } finally {
@@ -181,6 +188,12 @@ fun SettingsScreen(
                     Spacer(Modifier.width(4.dp))
                     Text("Download")
                   }
+                }
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = { onRemoveModel(url) }) {
+                  Icon(Icons.Default.Delete, contentDescription = null)
+                  Spacer(Modifier.width(4.dp))
+                  Text("Remove")
                 }
               }
             }
