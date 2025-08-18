@@ -195,9 +195,6 @@ class RagChatRepository @Inject constructor(
                 }
             }
             
-            // Clear KV cache
-            LlamaNative.llamaKvCacheClear(baseRepository.getLlamaContextPublic())
-            
             // 5) Save assistant response
             val reply = builder.toString().trim()
             manager.appendAssistant(reply)

@@ -26,6 +26,7 @@ import edu.upt.assistant.ui.navigation.HISTORY_ROUTE
 import edu.upt.assistant.ui.navigation.NEW_CHAT_ROUTE
 import edu.upt.assistant.ui.navigation.SETTINGS_ROUTE
 import kotlinx.coroutines.flow.filter
+import edu.upt.assistant.LlamaNative
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,6 +68,11 @@ fun ChatRoute(
         if (!isStreaming) {
             streamingMessage = ""
         }
+    }
+    
+    // Clear KV cache when conversation changes
+    LaunchedEffect(conversationId) {
+        vm.clearKvCacheForConversation(conversationId)
     }
 
     Scaffold(

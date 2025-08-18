@@ -8,9 +8,7 @@ object PromptTemplateFactory {
         return when {
             filename.contains("qwen") -> QwenPromptTemplate()
             filename.contains("llama") || filename.contains("meta") -> LlamaPromptTemplate()
-            // Gemma can also work reasonably with the Llama-style template here.
-            filename.contains("gemma") -> LlamaPromptTemplate()
-            else -> LlamaPromptTemplate()
+            else -> GenericPromptTemplate()
         }
     }
     

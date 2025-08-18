@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import edu.upt.assistant.LlamaNative
 import edu.upt.assistant.ui.screens.Conversation
 import edu.upt.assistant.ui.screens.Message
 import kotlinx.coroutines.Dispatchers
@@ -85,6 +86,9 @@ class ChatViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
+                // Clear KV cache for new conversation
+                clearKvCacheIfPossible()
+                
                 // 1) Create conversation metadata
                 val timestamp = currentTimeLabel()
                 repo.createConversation(
@@ -149,6 +153,29 @@ class ChatViewModel @Inject constructor(
     fun deleteConversation(conversationId: String) = viewModelScope.launch {
         Log.d("ChatViewModel", "Deleting conversation: $conversationId")
         repo.deleteConversation(conversationId)
+    }
+
+    /**
+     * Clears the KV cache when switching conversations or starting new ones
+     */
+    fun clearKvCacheForConversation(conversationId: String) {
+        Log.d("ChatViewModel", "Clearing KV cache for conversation: $conversationId")
+        clearKvCacheIfPossible()
+    }
+    
+    private fun clearKvCacheIfPossible() {
+        viewModelScope.launch {
+            try {
+                val repoImpl = repo as? ChatRepositoryImpl
+                if (repoImpl != null) {
+                    val ctx = repoImpl.getLlamaContextPublic()
+                    LlamaNative.llamaKvCacheClear(ctx)
+                    Log.d("ChatViewModel", "KV cache cleared successfully")
+                }
+            } catch (e: Exception) {
+                Log.w("ChatViewModel", "Failed to clear KV cache: ${e.message}")
+            }
+        }
     }
 
     // Helper to format timestamps
