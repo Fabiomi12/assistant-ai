@@ -1,13 +1,16 @@
 package edu.upt.assistant.domain.prompts
 
 object PromptTemplateFactory {
-    
+
     fun getTemplateForModel(modelUrl: String): PromptTemplate {
         val filename = extractFilename(modelUrl).lowercase()
-        
+
         return when {
-            filename.lowercase().contains("qwen") -> QwenPromptTemplate()
-            else -> GenericPromptTemplate()
+            filename.contains("qwen") -> QwenPromptTemplate()
+            filename.contains("llama") || filename.contains("meta") -> LlamaPromptTemplate()
+            // Gemma can also work reasonably with the Llama-style template here.
+            filename.contains("gemma") -> LlamaPromptTemplate()
+            else -> LlamaPromptTemplate()
         }
     }
     

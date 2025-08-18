@@ -1,4 +1,3 @@
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -22,57 +21,73 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        // Ship only the device ABI for speed/size
         ndk {
-            // only build for the ABIs you intend to support
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters.clear()
+            abiFilters += listOf("arm64-v8a")
         }
 
         externalNativeBuild {
             cmake {
-                cppFlags += listOf("-std=c++17")
+                // Make the native lib FAST even in debug variant
                 arguments += listOf(
-                    "-DLLAMA_NO_MMAP=ON"
+                    "-DCMAKE_BUILD_TYPE=Release",
+                    "-DLLAMA_NO_MMAP=OFF",
+                    "-DGGML_BLAS=OFF",
+                    "-DGGML_SHARED=OFF",
+                    "-DGGML_BACKEND_SHARED=OFF",
+                    "-DGGML_OPENMP=OFF",        // ⬅️
+                    "-DGGML_USE_OPENMP=OFF",    // ⬅️
+                    "-DGGML_THREADPOOL=ON",     // ⬅️
+                    "-DANDROID_STL=c++_shared"
                 )
+                // Optimize
+                cFlags  += listOf("-O3", "-DNDEBUG")
+                cppFlags += listOf("-O3", "-DNDEBUG", "-std=c++17")
             }
         }
     }
 
     sourceSets {
-        getByName("main") {
-            assets.srcDirs("src/main/assets")
-        }
+        getByName("main") { assets.srcDirs("src/main/assets") }
     }
 
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"  // match your installed CMake version
+            version = "3.22.1"
         }
     }
 
     buildTypes {
+        debug {
+            // ensure native Release even for debug APK
+            externalNativeBuild {
+                cmake { arguments += listOf("-DCMAKE_BUILD_TYPE=Release") }
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            ndk { debugSymbolLevel = "none" }
+            externalNativeBuild {
+                cmake { arguments += listOf("-DCMAKE_BUILD_TYPE=Release") }
+            }
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    kotlinOptions {
-        jvmTarget = "11"
-    }
-    buildFeatures {
-        compose = true
-    }
+    kotlinOptions { jvmTarget = "11" }
+    buildFeatures { compose = true }
 }
 
 dependencies {
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -88,34 +103,17 @@ dependencies {
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
-
-    // Material Icons (extended set, including History & Settings)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.material3)
-
-    // Compose Navigation
     implementation(libs.androidx.navigation.compose)
-
-    // Room
     implementation(libs.androidx.room.runtime)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.room.ktx)
-
-    // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
-
-    // Datastore
     implementation(libs.androidx.datastore.preferences)
-
-    // Tensorflow
     implementation(libs.tensorflow.lite)
     implementation(libs.tensorflow.lite.support)
-    
-    // Kotlinx Serialization
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
-
+    implementation(libs.kotlinx.serialization.json)
 }
-
-

@@ -66,9 +66,11 @@ class ChatRepositoryImpl @Inject constructor(
 
             val modelPath = modelDownloadManager.getModelPath(url)
             Log.d("ChatRepository", "Model path: $modelPath")
+            // Use optimized thread count (6-8) instead of all processors for better performance
+            val optimalThreads = minOf(8, maxOf(6, Runtime.getRuntime().availableProcessors() / 2))
             val ctx = LlamaNative.llamaCreate(
                 modelPath,
-                Runtime.getRuntime().availableProcessors()
+                optimalThreads
             )
             if (ctx == 0L) {
                 Log.e("ChatRepository", "Failed to create llama context")
@@ -189,15 +191,27 @@ class ChatRepositoryImpl @Inject constructor(
             Log.d("ChatRepository", "Prompt prepared: $prompt")
 
             // 3) stream tokens
+            val llamaStartTime = System.currentTimeMillis()
+            var firstTokenTime: Long? = null
+            val promptTokens = prompt.length / 4
+            Log.d("ChatRepository", "PERFORMANCE: Prompt tokens: $promptTokens, n_ctx: 1536, n_batch: 256, n_ubatch: 64")
+            
             val builder = StringBuilder()
             withContext(Dispatchers.IO) {
-                Log.d("ChatRepository", "Starting token generation")
+                Log.d("ChatRepository", "Starting token generation at ${System.currentTimeMillis()}")
                 try {
                     LlamaNative.llamaGenerateStream(
                         ctx,
                         prompt,
-                        /* maxTokens = */ 128,
+                        /* maxTokens = */ 48,  // Reduced for faster first token
                         TokenCallback { token ->
+                            // Capture first token timing
+                            if (firstTokenTime == null) {
+                                firstTokenTime = System.currentTimeMillis()
+                                val prefillTime = firstTokenTime!! - llamaStartTime
+                                Log.d("ChatRepository", "🚀 PERFORMANCE: First token after ${prefillTime}ms (prefill time)")
+                            }
+                            
                             Log.d("ChatRepository", "Generated token: $token")
 
                             val normalized = normalizeToken(token)

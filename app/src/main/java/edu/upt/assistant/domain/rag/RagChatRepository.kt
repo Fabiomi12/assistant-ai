@@ -22,6 +22,7 @@ import edu.upt.assistant.domain.ConversationManager
 import edu.upt.assistant.domain.prompts.PromptTemplateFactory
 import javax.inject.Inject
 import javax.inject.Singleton
+import android.os.Process
 
 @Singleton
 class RagChatRepository @Inject constructor(
@@ -55,7 +56,7 @@ class RagChatRepository @Inject constructor(
     
     companion object {
         private const val TAG = "RagChatRepository"
-        private const val MAX_CONTEXT_LENGTH = 1500
+        private const val MAX_CONTEXT_LENGTH = 150 // Further reduced for much faster prefill
     }
     
     override fun getConversations(): Flow<List<Conversation>> {
@@ -80,6 +81,7 @@ class RagChatRepository @Inject constructor(
         
         try {
             // 1) Save the original user message to database (clean version)
+            Log.d(TAG, "TIMING: Starting message processing at ${System.currentTimeMillis()}")
             val now = System.currentTimeMillis()
             msgDao.insert(
                 MessageEntity(
@@ -90,46 +92,93 @@ class RagChatRepository @Inject constructor(
                 )
             )
             convDao.upsert(ConversationEntity(conversationId, conversationId, text, now))
-            Log.d(TAG, "Original user message saved to database")
+            Log.d(TAG, "TIMING: Database save completed at ${System.currentTimeMillis()}")
             
             // 2) Retrieve RAG context
+            Log.d(TAG, "TIMING: Starting RAG context retrieval at ${System.currentTimeMillis()}")
             val context = try {
                 retrieveContext(text)
             } catch (e: Exception) {
                 Log.e(TAG, "Error retrieving context", e)
                 ""
             }
+            Log.d(TAG, "TIMING: RAG context retrieval completed at ${System.currentTimeMillis()}")
             
             // 3) Prepare enhanced prompt for LLM
             val manager = managers.getOrPut(conversationId) { 
                 ConversationManager(currentSystemPrompt, promptTemplate = currentTemplate)
             }
-            val enhancedText = if (context.isNotEmpty()) {
-                Log.d(TAG, "Retrieved context for query: $text")
-                Log.d(TAG, "Context length: ${context.length}")
-                "$context\n\nUser Question: $text"
-            } else {
-                Log.d(TAG, "No context found, using original text")
-                text
-            }
             
-            val prompt = manager.buildPrompt(enhancedText)
-            manager.appendUser(text) // Add original text to conversation history
+            // Build conversation history (without current message) - limit to last 1 exchange for performance
+//            val conversationHistory = manager.getHistory().takeLast(1).map { msg ->
+//                edu.upt.assistant.domain.prompts.ConversationMessage(
+//                    role = when (msg.role) {
+//                        edu.upt.assistant.domain.Role.USER -> edu.upt.assistant.domain.prompts.MessageRole.USER
+//                        edu.upt.assistant.domain.Role.ASSISTANT -> edu.upt.assistant.domain.prompts.MessageRole.ASSISTANT
+//                        else -> edu.upt.assistant.domain.prompts.MessageRole.USER
+//                    },
+//                    content = msg.content
+//                )
+//            }
+
+            // Build conversation history: keep it EMPTY for speed/clarity in RAG mode
+            val conversationHistory = emptyList<edu.upt.assistant.domain.prompts.ConversationMessage>()
+
+
+            // Prepare current message with RAG context if available
+            val currentMessage = buildString {
+                if (context.isNotBlank()) {
+                    Log.d(TAG, "Retrieved context for query: $text (len=${context.length})")
+                    appendLine("CONTEXT")
+                    appendLine(context.trim())
+                    appendLine("---")
+                } else {
+                    Log.d(TAG, "No context found, using original text")
+                }
+                append(text.trim())
+            }
+
+
+            // Build prompt with history and enhanced current message
+            Log.d(TAG, "TIMING: Starting prompt building at ${System.currentTimeMillis()}")
+            val promptStartTime = System.currentTimeMillis()
+            val prompt = manager.buildPromptWithHistory(conversationHistory, currentMessage)
+            val promptEndTime = System.currentTimeMillis()
+            
+            // Add the ORIGINAL user text to conversation history (not the enhanced version)
+            manager.appendUser(text)
+            
+            val promptTokens = prompt.length / 4  // Rough estimate
+            Log.d(TAG, "PERFORMANCE: Prompt building took ${promptEndTime - promptStartTime}ms")
+            Log.d(TAG, "PERFORMANCE: Prompt tokens: $promptTokens, n_ctx: 1536, n_batch: 256, n_ubatch: 64")
             Log.d(TAG, "Prompt prepared with ${if (context.isNotEmpty()) "RAG context" else "no context"}")
+            Log.d(TAG, "PROMPT LENGTH: ${prompt.length} characters, estimated ~$promptTokens tokens")
             Log.d(TAG, "===== FULL PROMPT SENT TO MODEL =====")
             Log.d(TAG, prompt)
             Log.d(TAG, "===== END OF PROMPT =====")
             
             // 4) Generate response using LLaMA
+            Log.d(TAG, "TIMING: Starting LLaMA generation at ${System.currentTimeMillis()}")
+            val llamaStartTime = System.currentTimeMillis()
+            var firstTokenTime: Long? = null
             val builder = StringBuilder()
             withContext(Dispatchers.IO) {
+                Log.d(TAG, "TIMING: Inside IO context at ${System.currentTimeMillis()}")
                 Log.d(TAG, "Starting token generation")
                 try {
+                    Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY)
                     LlamaNative.llamaGenerateStream(
                         baseRepository.getLlamaContextPublic(),
                         prompt,
-                        128, // maxTokens
+                        32, // Further reduced for much faster first token
                         TokenCallback { token ->
+                            // Capture first token timing
+                            if (firstTokenTime == null) {
+                                firstTokenTime = System.currentTimeMillis()
+                                val prefillTime = firstTokenTime!! - llamaStartTime
+                                Log.d(TAG, "🚀 PERFORMANCE: First token after ${prefillTime}ms (prefill time)")
+                            }
+                            
                             Log.d(TAG, "Generated token: $token")
                             val normalized = baseRepository.normalizeTokenPublic(token)
                             val output = if (builder.isEmpty()) normalized.trimStart() else normalized
@@ -184,7 +233,7 @@ class RagChatRepository @Inject constructor(
     
     private suspend fun retrieveContext(query: String): String {
         return try {
-            val retrievedChunks = documentRepository.searchSimilarContent(query, topK = 3)
+            val retrievedChunks = documentRepository.searchSimilarContent(query, topK = 1) // Reduced from 3 to 1
             
             if (retrievedChunks.isEmpty()) {
                 Log.d(TAG, "No relevant context found for query: $query")
@@ -192,17 +241,13 @@ class RagChatRepository @Inject constructor(
             }
             
             val contextBuilder = StringBuilder()
-            contextBuilder.appendLine("Context Information:")
-            contextBuilder.appendLine("---")
+            contextBuilder.appendLine("Context:")
             
-            retrievedChunks.forEachIndexed { index, chunk ->
-                contextBuilder.appendLine("${index + 1}. From '${chunk.documentTitle}' (similarity: ${String.format("%.3f", chunk.similarity)}):")
+            retrievedChunks.forEach { chunk ->
                 contextBuilder.appendLine(chunk.text.trim())
-                contextBuilder.appendLine()
             }
             
             contextBuilder.appendLine("---")
-            contextBuilder.appendLine("Please use the above context to help answer the following question:")
             
             val context = contextBuilder.toString()
             

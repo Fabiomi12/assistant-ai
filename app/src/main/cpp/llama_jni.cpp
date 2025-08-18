@@ -1,4 +1,3 @@
-
 #include "llama.h"
 #include <android/log.h>
 #include <cstring>
@@ -7,55 +6,70 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <algorithm>
+#include <cctype>
+#include "ggml.h"
 
 #define LOG_TAG "LLAMA_JNI"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 extern "C" {
 
-// Helper to detect response completion
-bool should_stop_generation(const std::string& accumulated_text, llama_token token, const llama_vocab* vocab) {
-    const char* piece = llama_vocab_get_text(vocab, token);
-    if (!piece) return false;
+// --------- helpers ---------
 
-    std::string token_text(piece);
-
-    // Stop on EOS token
-    if (llama_vocab_is_eog(vocab, token)) {
-        return true;
+// Some llama builds have llama_batch_clear; if not, clear arrays manually.
+static inline void batch_clear_compat(llama_batch* b) {
+    // If your headers expose llama_batch_clear, prefer it:
+    // llama_batch_clear(b);
+    // Manual clear (compatible with older headers):
+    for (int i = 0; i < b->n_tokens; ++i) {
+        b->token[i]     = 0;
+        b->pos[i]       = 0;
+        b->n_seq_id[i]  = 0;
+        b->seq_id[i][0] = 0;
+        b->logits[i]    = 0;
     }
+    b->n_tokens = 0;
+}
 
-    // Stop if we encounter "User:" which indicates model is hallucinating dialogue
-    if (accumulated_text.find("User:") != std::string::npos) {
-        LOGI("Stopping generation - detected 'User:' in response");
-        return true;
+// Two-pass tokenization with special-token parsing (CRITICAL for ChatML/Llama-3 headers)
+static std::vector<llama_token> tokenize_with_specials(const llama_vocab* vocab, const char* text) {
+    int32_t needed = llama_tokenize(vocab, text, (int32_t)strlen(text),
+                                    nullptr, 0,
+            /*add_special=*/true,
+            /*parse_special=*/true);
+    if (needed < 0) needed = -needed; // older builds return negative size
+    std::vector<llama_token> out(needed);
+    int32_t got = llama_tokenize(vocab, text, (int32_t)strlen(text),
+                                 out.data(), (int32_t)out.size(),
+            /*add_special=*/true,
+            /*parse_special=*/true);
+    if (got < 0) {
+        out.clear();
+    } else {
+        out.resize(got);
     }
+    return out;
+}
 
-    // Stop if response seems to be creating a new assistant turn
-    if (accumulated_text.find("Assistant:") != std::string::npos && accumulated_text.length() > 20) {
-        LOGI("Stopping generation - detected additional 'Assistant:' in response");
-        return true;
-    }
-
-    // Stop on excessive newlines (might indicate dialogue generation)
-    int newline_count = 0;
-    for (char c : accumulated_text) {
-        if (c == '\n') newline_count++;
-    }
-    if (newline_count > 3) {
-        LOGI("Stopping generation - too many newlines detected");
-        return true;
-    }
-
+// Real special-token based stopping
+static inline bool should_stop_generation(llama_token tok,
+                                          const llama_vocab* vocab,
+                                          llama_token tok_eos,
+                                          llama_token tok_im_end,
+                                          llama_token tok_eot) {
+    if (tok == tok_eos) return true;
+    if (tok_eot != -1 && tok == tok_eot) return true;      // Llama 3 end-of-turn
+    if (tok_im_end != -1 && tok == tok_im_end) return true; // ChatML <|im_end|>
+    if (llama_vocab_is_eog(vocab, tok)) return true;        // fallback
     return false;
 }
 
-// -----------------------------
-// JNI: Initialize and free
-// -----------------------------
-JNIEXPORT jlong JNICALL Java_edu_upt_assistant_LlamaNative_llamaCreate(
-        JNIEnv *env, jclass, jstring modelPathJ, jint nThreads) {
+// --------- JNI: init / free ---------
+
+JNIEXPORT jlong JNICALL
+Java_edu_upt_assistant_LlamaNative_llamaCreate(JNIEnv *env, jclass, jstring modelPathJ, jint nThreads) {
     const char *path = env->GetStringUTFChars(modelPathJ, nullptr);
     if (!path) {
         jclass ioe = env->FindClass("java/io/IOException");
@@ -63,31 +77,31 @@ JNIEXPORT jlong JNICALL Java_edu_upt_assistant_LlamaNative_llamaCreate(
         return 0;
     }
 
-    // Load model
     llama_model_params mparams = llama_model_default_params();
+    // mparams.use_mmap = true; // default is usually true; keep defaults
+
     llama_model *model = llama_model_load_from_file(path, mparams);
     env->ReleaseStringUTFChars(modelPathJ, path);
-
     if (!model) {
         jclass ioe = env->FindClass("java/io/IOException");
         env->ThrowNew(ioe, "Failed to load model");
         return 0;
     }
 
-    // Create context
     llama_context_params cparams = llama_context_default_params();
-    cparams.n_ctx = 2048;
-
-    int threads = nThreads > 0
-                  ? nThreads
-                  : static_cast<int>(std::thread::hardware_concurrency());
-    if (threads <= 0) {
-        threads = 1;
-    }
-    cparams.n_threads = threads;
+    cparams.n_ctx           = 1536;  // mobile-friendly
+    cparams.n_batch         = 256;   // prompt ingest speed
+    cparams.n_ubatch        = 64;    // micro-batch for memory
+    int threads = (nThreads > 0 ? nThreads : 8);
+    threads = std::max(6, std::min(threads, 8)); // 6–8 threads on phone
+    cparams.n_threads       = threads;
     cparams.n_threads_batch = threads;
+    // Enable 8-bit KV cache if your headers support it:
+#ifdef LLAMA_KV_8
+    cparams.type_kv         = LLAMA_KV_8;
+#endif
 
-    LOGI("Using %d threads", threads);
+    LOGI("Using %d threads (ctx=%d, batch=%d, ubatch=%d)", threads, cparams.n_ctx, cparams.n_batch, cparams.n_ubatch);
 
     llama_context *ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
@@ -97,7 +111,14 @@ JNIEXPORT jlong JNICALL Java_edu_upt_assistant_LlamaNative_llamaCreate(
         return 0;
     }
 
-    LOGI("Context initialized successfully");
+    #ifdef NDEBUG
+        LOGI("JNI build: Release");
+    #else
+        LOGI("JNI build: Debug");
+    #endif
+
+
+    LOGI("Context initialized");
     return reinterpret_cast<jlong>(ctx);
 }
 
@@ -107,28 +128,27 @@ Java_edu_upt_assistant_LlamaNative_llamaFree(JNIEnv *, jclass, jlong ctxPtr) {
     if (ctx) {
         const llama_model *model = llama_get_model(ctx);
         llama_free(ctx);
-        if (model) {
-            llama_model_free(const_cast<llama_model *>(model));
-        }
+        if (model) llama_model_free(const_cast<llama_model *>(model));
         LOGI("Context and model freed");
     }
 }
 
 JNIEXPORT void JNICALL
-Java_edu_upt_assistant_LlamaNative_llamaKvCacheClear(JNIEnv *, jclass,
-                                                     jlong ctxPtr) {
+Java_edu_upt_assistant_LlamaNative_llamaKvCacheClear(JNIEnv *, jclass, jlong ctxPtr) {
     auto *ctx = reinterpret_cast<llama_context *>(ctxPtr);
     if (ctx) {
+        // Prefer new API when available:
+        // llama_kv_cache_clear(ctx);
+        // Fallback to legacy (kept for compatibility with older headers):
         llama_kv_self_clear(ctx);
         LOGI("KV cache cleared");
     }
 }
 
-// -----------------------------
-// JNI: Synchronous Generation
-// -----------------------------
-JNIEXPORT jstring JNICALL Java_edu_upt_assistant_LlamaNative_llamaGenerate(
-        JNIEnv *env, jclass, jlong ctxPtr, jstring promptJ, jint maxTokens) {
+// --------- JNI: sync generate ---------
+
+JNIEXPORT jstring JNICALL
+Java_edu_upt_assistant_LlamaNative_llamaGenerate(JNIEnv *env, jclass, jlong ctxPtr, jstring promptJ, jint maxTokens) {
     auto *ctx = reinterpret_cast<llama_context *>(ctxPtr);
     if (!ctx) {
         jclass exc = env->FindClass("java/lang/IllegalStateException");
@@ -136,7 +156,6 @@ JNIEXPORT jstring JNICALL Java_edu_upt_assistant_LlamaNative_llamaGenerate(
         return nullptr;
     }
 
-    // Get prompt text
     const char *prompt = env->GetStringUTFChars(promptJ, nullptr);
     if (!prompt) {
         jclass exc = env->FindClass("java/lang/IllegalStateException");
@@ -151,7 +170,6 @@ JNIEXPORT jstring JNICALL Java_edu_upt_assistant_LlamaNative_llamaGenerate(
         env->ThrowNew(exc, "Model not initialized");
         return nullptr;
     }
-
     const llama_vocab *vocab = llama_model_get_vocab(model);
     if (!vocab) {
         env->ReleaseStringUTFChars(promptJ, prompt);
@@ -160,52 +178,44 @@ JNIEXPORT jstring JNICALL Java_edu_upt_assistant_LlamaNative_llamaGenerate(
         return nullptr;
     }
 
-    const int32_t vocab_size = llama_vocab_n_tokens(vocab);
-
-    // Tokenize prompt
-    std::vector<llama_token> tokens(4096);
-    int32_t ntok =
-            llama_tokenize(vocab, prompt, static_cast<int32_t>(strlen(prompt)),
-                           tokens.data(), static_cast<int32_t>(tokens.size()),
-                           true, // add_special
-                           false // parse_special
-            );
-
+    // Tokenize with special parsing (CRITICAL)
+    std::vector<llama_token> tokens = tokenize_with_specials(vocab, prompt);
     env->ReleaseStringUTFChars(promptJ, prompt);
-
-    if (ntok < 0) {
+    if (tokens.empty()) {
         LOGE("Tokenization failed");
         return env->NewStringUTF("");
     }
+    const int32_t ntok = (int32_t)tokens.size();
+    LOGI("Tokenized prompt: %d tokens", ntok);
 
-    tokens.resize(ntok);
+    // Prefill in chunks of n_batch
+    const int n_batch = 256;
+    llama_batch batch = llama_batch_init(n_batch, 0, 1);
 
-    // Create batch and decode initial prompt
-    llama_batch batch = llama_batch_init(512, 0, 1);
+    for (int32_t cur = 0; cur < ntok; ) {
+        batch_clear_compat(&batch);
+        const int32_t nb = std::min(n_batch, ntok - cur);
+        // Fill this chunk
+        for (int i = 0; i < nb; ++i) {
+            const int32_t pos = cur + i;
+            const bool set_logits = (pos == ntok - 1); // logits only for last token of entire prompt
+            batch.token[i]     = tokens[pos];
+            batch.pos[i]       = pos;
+            batch.n_seq_id[i]  = 1;
+            batch.seq_id[i][0] = 0;
+            batch.logits[i]    = set_logits ? 1 : 0;
+        }
+        batch.n_tokens = nb;
 
-    // Fill batch with prompt tokens
-    batch.n_tokens = ntok;
-    for (int i = 0; i < ntok; ++i) {
-        batch.token[i] = tokens[i];
-        batch.pos[i] = i;
-        batch.n_seq_id[i] = 1;
-        batch.seq_id[i][0] = 0;
-        batch.logits[i] =
-                (i == ntok - 1) ? 1 : 0; // Only need logits for last token
+        if (llama_decode(ctx, batch) != 0) {
+            LOGE("Batch decode failed at pos %d", cur);
+            llama_batch_free(batch);
+            return env->NewStringUTF("");
+        }
+        cur += nb;
     }
 
-    if (llama_decode(ctx, batch) != 0) {
-        LOGE("Initial decode failed");
-        llama_batch_free(batch);
-        return env->NewStringUTF("");
-    }
-
-    // Prepare output
-    std::string output;
-    output.reserve(maxTokens * 4);
-    int n_cur = ntok;
-
-    // Configure sampler for better quality
+    // Prepare sampler
     auto sparams = llama_sampler_chain_default_params();
     llama_sampler *sampler = llama_sampler_chain_init(sparams);
     llama_sampler_chain_add(sampler, llama_sampler_init_top_k(40));
@@ -213,153 +223,120 @@ JNIEXPORT jstring JNICALL Java_edu_upt_assistant_LlamaNative_llamaGenerate(
     llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.7f));
     llama_sampler_chain_add(sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
-    // Generation loop with better stopping conditions
+    // Precompute stop tokens
+    const llama_token tok_eos = llama_vocab_eos(vocab);
+    const llama_token tok_eot = llama_vocab_eot(vocab); // Llama 3 end-of-turn (may be -1)
+    llama_token tok_im_end = -1;
+    {
+        llama_token tmp[8];
+        int32_t n = llama_tokenize(vocab, "<|im_end|>", (int32_t)strlen("<|im_end|>"),
+                                   tmp, 8, /*add_special=*/true, /*parse_special=*/true);
+        if (n == 1) tok_im_end = tmp[0];
+    }
+
+    // Decode loop
+    std::string output;
+    output.reserve(std::max(16, (int)maxTokens * 4));
+    int n_cur = ntok;
+
     for (int i = 0; i < maxTokens; ++i) {
-        // Sample next token
-        llama_token next_token = llama_sampler_sample(sampler, ctx, -1);
+        llama_token next = llama_sampler_sample(sampler, ctx, -1);
+        if (should_stop_generation(next, vocab, tok_eos, tok_im_end, tok_eot)) break;
 
-        // Check for EOS or stopping conditions
-        if (should_stop_generation(output, next_token, vocab)) {
-            break;
-        }
-
-        // Get token text
-        const char *piece = llama_vocab_get_text(vocab, next_token);
+        const char *piece = llama_vocab_get_text(vocab, next);
         if (!piece) break;
 
-        std::string token_text(piece);
-        // Replace common space tokens
-        if (token_text == "▁") {
-            token_text = " ";
-        } else if (token_text.length() >= 3 && token_text.substr(0, 3) == "▁") {
-            token_text = " " + token_text.substr(3);
-        }
+        std::string t(piece);
+        if (t == "▁")        t = " ";
+        else if (t.size() >= 3 && t.substr(0, 3) == "▁") t = " " + t.substr(3);
+        output += t;
 
-        output += token_text;
-
-        // Prepare batch for next token
-        batch.n_tokens = 1;
-        batch.token[0] = next_token;
-        batch.pos[0] = n_cur;
-        batch.n_seq_id[0] = 1;
+        // feed back token
+        batch_clear_compat(&batch);
+        batch.n_tokens     = 1;
+        batch.token[0]     = next;
+        batch.pos[0]       = n_cur++;
+        batch.n_seq_id[0]  = 1;
         batch.seq_id[0][0] = 0;
-        batch.logits[0] = 1;
+        batch.logits[0]    = 1;
 
         if (llama_decode(ctx, batch) != 0) {
             LOGE("Decode token failed");
             break;
         }
-
-        n_cur++;
     }
 
     llama_sampler_free(sampler);
     llama_batch_free(batch);
 
-    // Clean up output
-    std::string cleaned_output = output;
-    // Remove any trailing dialogue artifacts
-    size_t user_pos = cleaned_output.find("User:");
-    if (user_pos != std::string::npos) {
-        cleaned_output = cleaned_output.substr(0, user_pos);
-    }
-    size_t assistant_pos = cleaned_output.find("Assistant:");
-    if (assistant_pos != std::string::npos && assistant_pos > 10) {
-        cleaned_output = cleaned_output.substr(0, assistant_pos);
-    }
+    // Perf breakdown (prompt vs decode)
+    llama_perf_context_print(ctx);
 
-    // Trim whitespace
-    while (!cleaned_output.empty() && std::isspace(cleaned_output.back())) {
-        cleaned_output.pop_back();
-    }
+    // Trim trailing spaces
+    while (!output.empty() && std::isspace((unsigned char)output.back())) output.pop_back();
 
-    return env->NewStringUTF(cleaned_output.c_str());
+    return env->NewStringUTF(output.c_str());
 }
 
-// -----------------------------
-// JNI: Streaming Generation
-// -----------------------------
-JNIEXPORT void JNICALL Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(
-        JNIEnv *env, jclass, jlong ctxPtr, jstring promptJ, jint maxTokens,
-        jobject callback) {
+// --------- JNI: streaming generate ---------
+
+JNIEXPORT void JNICALL
+Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(JNIEnv *env, jclass, jlong ctxPtr,
+                                                       jstring promptJ, jint maxTokens, jobject callback) {
     auto *ctx = reinterpret_cast<llama_context *>(ctxPtr);
-    if (!ctx || !callback) {
-        LOGE("Invalid context or callback");
-        return;
-    }
+    if (!ctx || !callback) { LOGE("Invalid context or callback"); return; }
 
     const char *prompt = env->GetStringUTFChars(promptJ, nullptr);
-    if (!prompt) {
-        LOGE("Failed to get prompt string");
-        return;
-    }
+    if (!prompt) { LOGE("Failed to get prompt"); return; }
 
     const llama_model *model = llama_get_model(ctx);
-    if (!model) {
-        env->ReleaseStringUTFChars(promptJ, prompt);
-        LOGE("Model not initialized");
-        return;
-    }
-
+    if (!model) { env->ReleaseStringUTFChars(promptJ, prompt); LOGE("Model not initialized"); return; }
     const llama_vocab *vocab = llama_model_get_vocab(model);
-    if (!vocab) {
-        env->ReleaseStringUTFChars(promptJ, prompt);
-        LOGE("Vocab not initialized");
-        return;
-    }
+    if (!vocab) { env->ReleaseStringUTFChars(promptJ, prompt); LOGE("Vocab not initialized"); return; }
 
-    // Tokenize prompt
-    std::vector<llama_token> tokens(4096);
-    int32_t ntok =
-            llama_tokenize(vocab, prompt, static_cast<int32_t>(strlen(prompt)),
-                           tokens.data(), static_cast<int32_t>(tokens.size()),
-                           true, // add_special
-                           false // parse_special
-            );
-
+    // Tokenize with special parsing
+    std::vector<llama_token> tokens = tokenize_with_specials(vocab, prompt);
     env->ReleaseStringUTFChars(promptJ, prompt);
+    if (tokens.empty()) { LOGE("Tokenization failed"); return; }
+    const int32_t ntok = (int32_t)tokens.size();
+    LOGI("Streaming: tokenized prompt %d tokens", ntok);
 
-    if (ntok < 0) {
-        LOGE("Tokenization failed");
-        return;
+    // Prefill in chunks
+    const int n_batch = 256;
+    llama_batch batch = llama_batch_init(n_batch, 0, 1);
+
+    const int64_t t0 = ggml_time_us();
+
+    for (int32_t cur = 0; cur < ntok; ) {
+        batch_clear_compat(&batch);
+        const int32_t nb = std::min(n_batch, ntok - cur);
+        for (int i = 0; i < nb; ++i) {
+            const int32_t pos = cur + i;
+            const bool set_logits = (pos == ntok - 1);
+            batch.token[i]     = tokens[pos];
+            batch.pos[i]       = pos;
+            batch.n_seq_id[i]  = 1;
+            batch.seq_id[i][0] = 0;
+            batch.logits[i]    = set_logits ? 1 : 0;
+        }
+        batch.n_tokens = nb;
+
+        if (llama_decode(ctx, batch) != 0) {
+            LOGE("Streaming batch decode failed at pos %d", cur);
+            llama_batch_free(batch);
+            return;
+        }
+        cur += nb;
     }
 
-    tokens.resize(ntok);
+    const int64_t t_prefill_done = ggml_time_us();
 
-    // Initialize batch with proper size
-    llama_batch batch = llama_batch_init(512, 0, 1);
-
-    // Fill batch with prompt tokens
-    batch.n_tokens = ntok;
-    for (int i = 0; i < ntok; ++i) {
-        batch.token[i] = tokens[i];
-        batch.pos[i] = i;
-        batch.n_seq_id[i] = 1;
-        batch.seq_id[i][0] = 0;
-        batch.logits[i] =
-                (i == ntok - 1) ? 1 : 0; // Only need logits for last token
-    }
-
-    if (llama_decode(ctx, batch) != 0) {
-        LOGE("Initial decode failed");
-        llama_batch_free(batch);
-        return;
-    }
-
-    // Prepare Java callback method
+    // Callback
     jclass cbCls = env->GetObjectClass(callback);
-    jmethodID onToken =
-            env->GetMethodID(cbCls, "onToken", "(Ljava/lang/String;)V");
-    if (!onToken) {
-        LOGE("Failed to find onToken method");
-        llama_batch_free(batch);
-        return;
-    }
+    jmethodID onToken = env->GetMethodID(cbCls, "onToken", "(Ljava/lang/String;)V");
+    if (!onToken) { LOGE("Failed to find onToken"); llama_batch_free(batch); return; }
 
-    const int32_t vocab_size = llama_vocab_n_tokens(vocab);
-    int n_cur = ntok;
-
-    // Configure sampler with better parameters for focused responses
+    // Sampler
     auto sparams = llama_sampler_chain_default_params();
     llama_sampler *sampler = llama_sampler_chain_init(sparams);
     llama_sampler_chain_add(sampler, llama_sampler_init_top_k(40));
@@ -367,70 +344,65 @@ JNIEXPORT void JNICALL Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(
     llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.7f));
     llama_sampler_chain_add(sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
-    // Track accumulated output for stopping conditions
-    std::string accumulated_output;
+    // Stop tokens
+    const llama_token tok_eos = llama_vocab_eos(vocab);
+    const llama_token tok_eot = llama_vocab_eot(vocab);
+    llama_token tok_im_end = -1;
+    {
+        llama_token tmp[8];
+        int32_t n = llama_tokenize(vocab, "<|im_end|>", (int32_t)strlen("<|im_end|>"),
+                                   tmp, 8, /*add_special=*/true, /*parse_special=*/true);
+        if (n == 1) tok_im_end = tmp[0];
+    }
 
-    // Stream tokens as generated with better stopping
+    int n_cur = ntok;
+
+    bool logged_first_sample = false;
+
     for (int i = 0; i < maxTokens; ++i) {
-        // Sample next token
-        llama_token next_token = llama_sampler_sample(sampler, ctx, -1);
+        llama_token next = llama_sampler_sample(sampler, ctx, -1);
 
-        // Check stopping conditions early
-        if (should_stop_generation(accumulated_output, next_token, vocab)) {
-            LOGI("Stopping generation due to completion criteria");
-            break;
+        if (!logged_first_sample) {
+            const int64_t t_first = ggml_time_us();
+            LOGI("TIMINGS us: prefill=%lld, first_sample_delay=%lld",
+                 (long long)(t_prefill_done - t0),
+                 (long long)(t_first - t_prefill_done));
+            logged_first_sample = true;
         }
 
-        // Get token text
-        const char *piece = llama_vocab_get_text(vocab, next_token);
-        if (!piece) {
-            LOGE("Failed to get token text");
-            break;
-        }
+        if (should_stop_generation(next, vocab, tok_eos, tok_im_end, tok_eot)) break;
 
-        std::string token_text(piece);
-        // Normalize token text
-        if (token_text == "▁") {
-            token_text = " ";
-        } else if (token_text.length() >= 3 && token_text.substr(0, 3) == "▁") {
-            token_text = " " + token_text.substr(3);
-        }
+        const char *piece = llama_vocab_get_text(vocab, next);
+        if (!piece) break;
 
-        accumulated_output += token_text;
+        std::string t(piece);
+        if (t == "▁")        t = " ";
+        else if (t.size() >= 3 && t.substr(0, 3) == "▁") t = " " + t.substr(3);
 
-        // Send token to Java callback
-        jstring pieceJ = env->NewStringUTF(token_text.c_str());
+        jstring pieceJ = env->NewStringUTF(t.c_str());
         if (pieceJ) {
             env->CallVoidMethod(callback, onToken, pieceJ);
             env->DeleteLocalRef(pieceJ);
-
-            // Check for Java exceptions
-            if (env->ExceptionCheck()) {
-                env->ExceptionClear();
-                LOGE("Java exception in callback");
-                break;
-            }
+            if (env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Java exception in callback"); break; }
         }
 
-        // Prepare batch for next token
-        batch.n_tokens = 1;
-        batch.token[0] = next_token;
-        batch.pos[0] = n_cur;
-        batch.n_seq_id[0] = 1;
+        batch_clear_compat(&batch);
+        batch.n_tokens     = 1;
+        batch.token[0]     = next;
+        batch.pos[0]       = n_cur++;
+        batch.n_seq_id[0]  = 1;
         batch.seq_id[0][0] = 0;
-        batch.logits[0] = 1;
+        batch.logits[0]    = 1;
 
         if (llama_decode(ctx, batch) != 0) {
-            LOGE("Decode token failed");
+            LOGE("Streaming decode token failed");
             break;
         }
-
-        n_cur++;
     }
 
-    // Clean up sampler and batch
     llama_sampler_free(sampler);
     llama_batch_free(batch);
+    llama_perf_context_print(ctx);
     LOGI("Streaming generation completed");
 }
 

@@ -1,98 +1,69 @@
-# app/src/main/cpp/CMakeLists.txt
 cmake_minimum_required(VERSION 3.15)
 project(llama_jni)
 
-# Require C++17
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Android specific settings
+# Prefer Release for native code (big speedup)
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+set(CMAKE_C_FLAGS_RELEASE   "${CMAKE_C_FLAGS_RELEASE} -O3 -DNDEBUG")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
+
 set(CMAKE_ANDROID_STL_TYPE c++_shared)
 
-# === 16KB page size compatibility ===
-# Add linker flags for 16KB alignment
+# 16 KB page-size (Android 15+)
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+set(CMAKE_EXE_LINKER_FLAGS    "${CMAKE_EXE_LINKER_FLAGS}    -Wl,-z,max-page-size=16384")
 
-# Set C++ flags with alignment and other optimizations
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -frtti -fexceptions -pthread")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wl,-z,max-page-size=16384")
+# llama.cpp / ggml options (CPU NEON path; fast/stable on phone)
+set(LLAMA_NO_MMAP OFF CACHE BOOL "Disable llama-mmap" FORCE)
+set(GGML_BLAS OFF CACHE BOOL "ggml: use BLAS" FORCE)
+set(GGML_SHARED OFF CACHE BOOL "ggml: build shared lib" FORCE)
+set(GGML_BACKEND_SHARED OFF CACHE BOOL "ggml: build shared backend" FORCE)
+# add/keep these toggles:
+set(GGML_OPENMP OFF CACHE BOOL "ggml: disable OpenMP" FORCE)
+set(GGML_USE_OPENMP OFF CACHE BOOL "ggml: disable OpenMP (legacy toggle)" FORCE)
+set(GGML_THREADPOOL ON CACHE BOOL "ggml: enable internal threadpool" FORCE)
 
-# Find required packages
-find_package(Threads REQUIRED)
-
-# === llama.cpp configuration ===
-# Disable mmap on Android (avoids POSIX_MADV_WILLNEED errors)
-set(LLAMA_NO_MMAP ON CACHE BOOL "Disable llama-mmap on Android" FORCE)
-
-# Set llama.cpp build options before adding subdirectory
 set(LLAMA_BUILD_TESTS OFF CACHE BOOL "llama: build tests" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "llama: build examples" FORCE)
 set(LLAMA_BUILD_SERVER OFF CACHE BOOL "llama: build server" FORCE)
-set(GGML_BACKEND_SHARED ON CACHE BOOL "ggml: build shared backend" FORCE)
-set(GGML_SHARED ON CACHE BOOL "ggml: build shared library" FORCE)
 
-# Add 16KB alignment flags to llama.cpp build
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,-z,max-page-size=16384")
-
-# Add llama.cpp as a subdirectory
+# Bring in llama.cpp (assumes it's at src/main/cpp/llama.cpp)
 add_subdirectory(llama.cpp llama_cpp_build)
 
-# === JNI library ===
-# Build our JNI bridge
+# Our JNI bridge
 add_library(llama_jni SHARED llama_jni.cpp)
 
-# Find Android log library
+# Android system libs
 find_library(log-lib log)
 
-# Include paths for llama.cpp headers
+# Headers
 target_include_directories(llama_jni PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/include
         ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/src
         ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/ggml/include
 )
 
-# Set compile options with 16KB alignment
-target_compile_options(llama_jni PRIVATE
-        -pthread
-        -fPIC
-        -DGGML_USE_CPU=1
-)
+# Compile options (add pthread here; no need for Threads::Threads target)
+target_compile_options(llama_jni PRIVATE -fPIC -pthread -DGGML_USE_CPU=1)
 
-# Set linker flags for 16KB alignment on the main library
-target_link_options(llama_jni PRIVATE
-        "LINKER:-z,max-page-size=16384"
-)
+# Linker options
+target_link_options(llama_jni PRIVATE "LINKER:-z,max-page-size=16384" -pthread)
 
-# Link libraries in the correct order
+# Link order: llama first; ggml is linked statically by llama when GGML_SHARED=OFF
 target_link_libraries(llama_jni
-        llama                    # from llama.cpp (must come first)
-        ggml                     # ggml library
-        Threads::Threads         # Use the imported target for threads
-        ${log-lib}               # Android logging
-        android                  # Android system
-        m                        # math library
-        dl                       # dynamic loading
+        llama
+        ${log-lib}
+        android
+        m
+        dl
 )
 
-# Set target properties with 16KB alignment
-set_target_properties(llama_jni PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-        LINK_FLAGS "-Wl,-z,max-page-size=16384"
-)
-
-# Apply 16KB alignment to llama.cpp libraries as well
+# (Optional) propagate 16KB flag to llama target too
 if(TARGET llama)
-    set_target_properties(llama PROPERTIES
-            LINK_FLAGS "-Wl,-z,max-page-size=16384"
-    )
-endif()
-
-if(TARGET ggml)
-    set_target_properties(ggml PROPERTIES
-            LINK_FLAGS "-Wl,-z,max-page-size=16384"
-    )
+    set_target_properties(llama PROPERTIES LINK_FLAGS "-Wl,-z,max-page-size=16384")
 endif()

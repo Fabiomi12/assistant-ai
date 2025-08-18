@@ -13,7 +13,7 @@ class ConversationManager(
 Respond naturally and directly to the user's messages. 
 Keep responses focused and avoid generating lengthy or fictional conversations.
 Only respond as the Assistant - do not continue the conversation or create additional exchanges.""",
-    private val maxTokens: Int = 2048,
+    private val maxTokens: Int = 1536,  // Reduced to match n_ctx for better performance
     private val promptTemplate: PromptTemplate = GenericPromptTemplate()
 ) {
     private val history = ArrayDeque<Message>()
@@ -45,6 +45,18 @@ Only respond as the Assistant - do not continue the conversation or create addit
             conversationHistory = conversationMessages,
             currentUserMessage = text
         )
+    }
+    
+    fun buildPromptWithHistory(conversationHistory: List<ConversationMessage>, currentUserMessage: String): String {
+        return promptTemplate.buildPrompt(
+            systemPrompt = systemPrompt,
+            conversationHistory = conversationHistory,
+            currentUserMessage = currentUserMessage
+        )
+    }
+    
+    fun getHistory(): List<Message> {
+        return history.toList()
     }
 
     private fun trimIfNeeded(text: String) {

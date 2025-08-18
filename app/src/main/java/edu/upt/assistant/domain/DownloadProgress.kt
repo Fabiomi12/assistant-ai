@@ -42,7 +42,7 @@ class ModelDownloadManager @Inject constructor(
 ) {
 
     companion object {
-        const val DEFAULT_MODEL_URL = "https://huggingface.co/unsloth/gemma-3n-E4B-it-GGUF/resolve/main/gemma-3n-E4B-it-Q4_1.gguf?download=true"
+        const val DEFAULT_MODEL_URL = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q3_k_m.gguf"
     }
 
     private val modelsDir = File(context.filesDir, "models").apply { mkdirs() }

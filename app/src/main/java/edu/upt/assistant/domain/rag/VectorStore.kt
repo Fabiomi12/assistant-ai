@@ -41,12 +41,15 @@ class VectorStore(private val context: Context) {
     }
     
     suspend fun generateEmbedding(text: String): FloatArray = withContext(Dispatchers.Default) {
+        Log.d(TAG, "TIMING: Starting embedding generation for text length ${text.length} at ${System.currentTimeMillis()}")
         interpreter?.let { interpreter ->
             try {
                 val input = arrayOf(text)
                 val output = Array(1) { FloatArray(EMBEDDING_DIM) }
                 
+                Log.d(TAG, "TIMING: About to run TFLite inference at ${System.currentTimeMillis()}")
                 interpreter.run(input, output)
+                Log.d(TAG, "TIMING: TFLite inference completed at ${System.currentTimeMillis()}")
                 return@withContext output[0]
             } catch (e: Exception) {
                 Log.e(TAG, "Error generating embedding with TFLite", e)
@@ -54,7 +57,10 @@ class VectorStore(private val context: Context) {
         }
         
         // Fallback to simple hash-based embedding
-        generateSimpleEmbedding(text)
+        Log.d(TAG, "TIMING: Using simple embedding fallback at ${System.currentTimeMillis()}")
+        val result = generateSimpleEmbedding(text)
+        Log.d(TAG, "TIMING: Simple embedding completed at ${System.currentTimeMillis()}")
+        result
     }
     
     private fun generateSimpleEmbedding(text: String): FloatArray {

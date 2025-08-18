@@ -20,6 +20,7 @@ class DocumentRepository @Inject constructor(
     
     companion object {
         private const val TAG = "DocumentRepository"
+        private const val MIN_SIMILARITY_THRESHOLD = 0.3f // Minimum similarity score to consider a chunk relevant
     }
     
     private val json = Json { ignoreUnknownKeys = true }
@@ -78,16 +79,26 @@ class DocumentRepository @Inject constructor(
         documentDao.deleteDocumentById(documentId)
     }
     
-    suspend fun searchSimilarContent(query: String, topK: Int = 3): List<RetrievedChunk> {
+    suspend fun searchSimilarContent(
+        query: String, 
+        topK: Int = 3,
+        minSimilarity: Float = MIN_SIMILARITY_THRESHOLD
+    ): List<RetrievedChunk> {
+        Log.d(TAG, "TIMING: Starting similarity search at ${System.currentTimeMillis()}")
         Log.d(TAG, "Searching for similar content: $query")
         
+        Log.d(TAG, "TIMING: Starting embedding generation at ${System.currentTimeMillis()}")
         val queryEmbedding = vectorStore.generateEmbedding(query)
+        Log.d(TAG, "TIMING: Embedding generation completed at ${System.currentTimeMillis()}")
         Log.d(TAG, "Generated query embedding")
         
         // Get current snapshot of documents instead of collecting indefinitely
+        Log.d(TAG, "TIMING: Starting database query at ${System.currentTimeMillis()}")
         val entities = documentDao.getAllDocuments().first()
+        Log.d(TAG, "TIMING: Database query completed at ${System.currentTimeMillis()}")
         Log.d(TAG, "Retrieved ${entities.size} documents from database")
         
+        Log.d(TAG, "TIMING: Starting document processing at ${System.currentTimeMillis()}")
         val retrievedChunks = mutableListOf<RetrievedChunk>()
         
         entities.forEach { entity ->
@@ -123,11 +134,14 @@ class DocumentRepository @Inject constructor(
             }
         }
         
-        val result = retrievedChunks
+        Log.d(TAG, "TIMING: Starting filtering and sorting at ${System.currentTimeMillis()}")
+        val filteredChunks = retrievedChunks.filter { it.similarity >= minSimilarity }
+        val result = filteredChunks
             .sortedByDescending { it.similarity }
             .take(topK)
         
-        Log.d(TAG, "Search completed. Found ${result.size} relevant chunks")
+        Log.d(TAG, "TIMING: Search completed at ${System.currentTimeMillis()}")
+        Log.d(TAG, "Search completed. ${retrievedChunks.size} total chunks, ${filteredChunks.size} above threshold ($minSimilarity), returning top ${result.size}")
         result.forEach { chunk ->
             Log.d(TAG, "Chunk similarity: ${chunk.similarity} from '${chunk.documentTitle}'")
         }
