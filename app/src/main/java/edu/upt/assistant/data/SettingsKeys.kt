@@ -13,4 +13,5 @@ object SettingsKeys {
   val BIRTHDAY = stringPreferencesKey("birthday")
   val MODEL_URLS = stringSetPreferencesKey("model_urls")
   val SELECTED_MODEL = stringPreferencesKey("selected_model")
+  val RAG_ENABLED = booleanPreferencesKey("rag_enabled")
 }

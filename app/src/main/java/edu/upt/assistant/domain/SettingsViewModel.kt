@@ -32,6 +32,10 @@ class SettingsViewModel @Inject constructor(
     .map { prefs -> prefs[SettingsKeys.NOTIFICATIONS] ?: false }
     .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+  val ragEnabled: StateFlow<Boolean> = dataStore.data
+    .map { prefs -> prefs[SettingsKeys.RAG_ENABLED] ?: true }
+    .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
   val setupDone: StateFlow<Boolean> = dataStore.data
     .map { prefs -> prefs[SettingsKeys.SETUP_DONE] ?: false }
     .stateIn(viewModelScope, SharingStarted.Eagerly, false)
@@ -66,6 +70,10 @@ class SettingsViewModel @Inject constructor(
 
   fun setNotificationsEnabled(enabled: Boolean) = viewModelScope.launch {
     dataStore.edit { prefs -> prefs[SettingsKeys.NOTIFICATIONS] = enabled }
+  }
+
+  fun setRagEnabled(enabled: Boolean) = viewModelScope.launch {
+    dataStore.edit { prefs -> prefs[SettingsKeys.RAG_ENABLED] = enabled }
   }
 
   fun setActiveModel(url: String) = viewModelScope.launch {

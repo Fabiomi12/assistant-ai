@@ -59,8 +59,10 @@ import edu.upt.assistant.domain.ModelState
 fun SettingsScreen(
   username: String,
   notificationsEnabled: Boolean,
+  ragEnabled: Boolean,
   onUserNameChange: (String) -> Unit,
   onNotificationsToggle: (Boolean) -> Unit,
+  onRagToggle: (Boolean) -> Unit,
   onBack: () -> Unit,
   modelManagementState: ModelManagementState,
   onActiveModelChange: (String) -> Unit,
@@ -140,6 +142,21 @@ fun SettingsScreen(
           ) {
             Text("Enable notifications", modifier = Modifier.weight(1f))
             Switch(checked = notificationsEnabled, onCheckedChange = onNotificationsToggle)
+          }
+
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Column(modifier = Modifier.weight(1f)) {
+              Text("Enable RAG (Retrieval-Augmented Generation)")
+              Text(
+                text = "Uses your documents to enhance AI responses",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+              )
+            }
+            Switch(checked = ragEnabled, onCheckedChange = onRagToggle)
           }
         }
       }

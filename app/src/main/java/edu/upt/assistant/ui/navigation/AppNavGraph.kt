@@ -125,13 +125,16 @@ fun AppNavGraph(
 
             val username by settingsVm.username.collectAsState()
             val notificationsEnabled by settingsVm.notificationsEnabled.collectAsState()
+            val ragEnabled by settingsVm.ragEnabled.collectAsState()
             val modelManagementState by settingsVm.modelManagementState.collectAsState()
 
             SettingsScreen(
                 username = username,
                 notificationsEnabled = notificationsEnabled,
+                ragEnabled = ragEnabled,
                 onUserNameChange = { settingsVm.setUsername(it) },
                 onNotificationsToggle = { settingsVm.setNotificationsEnabled(it) },
+                onRagToggle = { settingsVm.setRagEnabled(it) },
                 onBack = { navController.popBackStack() },
                 modelManagementState = modelManagementState,
                 onActiveModelChange = { settingsVm.setActiveModel(it) },
