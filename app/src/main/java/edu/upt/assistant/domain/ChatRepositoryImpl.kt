@@ -6,6 +6,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import edu.upt.assistant.LlamaNative
+import edu.upt.assistant.domain.prompts.PromptTemplateFactory
 import edu.upt.assistant.TokenCallback
 import edu.upt.assistant.data.SettingsKeys
 import edu.upt.assistant.data.local.db.ConversationDao
@@ -50,7 +51,7 @@ class ChatRepositoryImpl @Inject constructor(
     init {
         observeModelChanges()
     }
-    private suspend fun getModelUrl(): String {
+    suspend fun getModelUrl(): String {
         return dataStore.data.map { prefs -> prefs[SettingsKeys.SELECTED_MODEL] ?: ModelDownloadManager.DEFAULT_MODEL_URL }.first()
     }
 
@@ -92,6 +93,10 @@ class ChatRepositoryImpl @Inject constructor(
                 .collect { newModelUrl ->
                     Log.d("ChatRepository", "Model changed to $newModelUrl, resetting llama context")
                     destroyLlamaContext()
+                    // Update template for new model
+                    currentTemplate = PromptTemplateFactory.getTemplateForModel(newModelUrl)
+                    // Clear managers so they get recreated with new template
+                    managers.clear()
                 }
         }
     }
@@ -117,6 +122,10 @@ class ChatRepositoryImpl @Inject constructor(
 
     // Keep a ConversationManager per conversation
     private val managers = mutableMapOf<String, ConversationManager>()
+    
+    // Cache current template based on model
+    private var currentTemplate = PromptTemplateFactory.getTemplateForModel(ModelDownloadManager.DEFAULT_MODEL_URL)
+    private var currentSystemPrompt = PromptTemplateFactory.getSystemPromptForNormal()
 
     override fun getConversations(): Flow<List<Conversation>> {
         Log.d("ChatRepository", "Getting conversations")
@@ -172,7 +181,9 @@ class ChatRepositoryImpl @Inject constructor(
             Log.d("ChatRepository", "User message saved")
 
             // 2) prepare prompt
-            val manager = managers.getOrPut(conversationId) { ConversationManager() }
+            val manager = managers.getOrPut(conversationId) { 
+                ConversationManager(currentSystemPrompt, promptTemplate = currentTemplate)
+            }
             val prompt = manager.buildPrompt(text)
             manager.appendUser(text)
             Log.d("ChatRepository", "Prompt prepared: $prompt")

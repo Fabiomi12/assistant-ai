@@ -1,5 +1,10 @@
 package edu.upt.assistant.domain
 
+import edu.upt.assistant.domain.prompts.ConversationMessage
+import edu.upt.assistant.domain.prompts.MessageRole
+import edu.upt.assistant.domain.prompts.PromptTemplate
+import edu.upt.assistant.domain.prompts.GenericPromptTemplate
+
 enum class Role { SYSTEM, USER, ASSISTANT }
 data class Message(val role: Role, val content: String)
 
@@ -8,7 +13,8 @@ class ConversationManager(
 Respond naturally and directly to the user's messages. 
 Keep responses focused and avoid generating lengthy or fictional conversations.
 Only respond as the Assistant - do not continue the conversation or create additional exchanges.""",
-    private val maxTokens: Int = 2048
+    private val maxTokens: Int = 2048,
+    private val promptTemplate: PromptTemplate = GenericPromptTemplate()
 ) {
     private val history = ArrayDeque<Message>()
 
@@ -23,26 +29,22 @@ Only respond as the Assistant - do not continue the conversation or create addit
     }
 
     fun buildPrompt(text: String): String {
-        val sb = StringBuilder()
-
-        // Add system prompt
-        sb.append(systemPrompt).append("\n\n")
-
-        // Add conversation history
-        history.forEach { msg ->
-            val prefix = when (msg.role) {
-                Role.USER      -> "User: "
-                Role.ASSISTANT -> "Assistant: "
-                else           -> ""
-            }
-            sb.append(prefix).append(msg.content).append("\n")
+        val conversationMessages = history.map { msg ->
+            ConversationMessage(
+                role = when (msg.role) {
+                    Role.USER -> MessageRole.USER
+                    Role.ASSISTANT -> MessageRole.ASSISTANT
+                    else -> MessageRole.USER // fallback
+                },
+                content = msg.content
+            )
         }
-
-        // Add current user message (can include RAG context for LLM)
-        sb.append("User: ").append(text).append("\n")
-        sb.append("Assistant:")
-
-        return sb.toString()
+        
+        return promptTemplate.buildPrompt(
+            systemPrompt = systemPrompt,
+            conversationHistory = conversationMessages,
+            currentUserMessage = text
+        )
     }
 
     private fun trimIfNeeded(text: String) {

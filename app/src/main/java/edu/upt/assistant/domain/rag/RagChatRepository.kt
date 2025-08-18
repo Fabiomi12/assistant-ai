@@ -19,6 +19,7 @@ import edu.upt.assistant.data.local.db.ConversationDao
 import edu.upt.assistant.LlamaNative
 import edu.upt.assistant.TokenCallback
 import edu.upt.assistant.domain.ConversationManager
+import edu.upt.assistant.domain.prompts.PromptTemplateFactory
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -32,6 +33,25 @@ class RagChatRepository @Inject constructor(
     
     // Keep a ConversationManager per conversation (similar to base repository)
     private val managers = mutableMapOf<String, ConversationManager>()
+    
+    // Cache current template and system prompt for RAG mode
+    private var currentTemplate = PromptTemplateFactory.getTemplateForModel("")
+    private var currentSystemPrompt = PromptTemplateFactory.getSystemPromptForRAG()
+    
+    init {
+        // Initialize template when repository is created
+        updateTemplateFromModel()
+    }
+    
+    private fun updateTemplateFromModel() {
+        try {
+            val modelUrl = runBlocking { baseRepository.getModelUrl() }
+            currentTemplate = PromptTemplateFactory.getTemplateForModel(modelUrl)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get model URL, using default template", e)
+            currentTemplate = PromptTemplateFactory.getTemplateForModel("")
+        }
+    }
     
     companion object {
         private const val TAG = "RagChatRepository"
@@ -81,7 +101,9 @@ class RagChatRepository @Inject constructor(
             }
             
             // 3) Prepare enhanced prompt for LLM
-            val manager = managers.getOrPut(conversationId) { ConversationManager() }
+            val manager = managers.getOrPut(conversationId) { 
+                ConversationManager(currentSystemPrompt, promptTemplate = currentTemplate)
+            }
             val enhancedText = if (context.isNotEmpty()) {
                 Log.d(TAG, "Retrieved context for query: $text")
                 Log.d(TAG, "Context length: ${context.length}")
