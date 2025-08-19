@@ -1,5 +1,7 @@
 package edu.upt.assistant.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,13 +16,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,7 +56,8 @@ fun ChatScreen(
     streamingMessage: String?,
     isStreaming: Boolean,
     onSend: (String) -> Unit,
-    initialMessage: String? = null
+    initialMessage: String? = null,
+    onSaveToMemory: ((String) -> Unit)? = null
 ) {
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -82,18 +91,22 @@ fun ChatScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(messages) { message ->
-                MessageBubble(message)
+                MessageBubble(
+                    message = message,
+                    onSaveToMemory = onSaveToMemory
+                )
             }
 
             // Show streaming message if present
             if (streamingMessage != null && streamingMessage.isNotEmpty()) {
                 item {
                     MessageBubble(
-                        Message(
+                        message = Message(
                             text = streamingMessage,
                             isUser = false,
                             isStreaming = true
-                        )
+                        ),
+                        onSaveToMemory = onSaveToMemory
                     )
                 }
             }
@@ -151,8 +164,15 @@ fun ChatScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MessageBubble(message: Message) {
+fun MessageBubble(
+    message: Message,
+    onSaveToMemory: ((String) -> Unit)? = null
+) {
+    var showContextMenu by remember { mutableStateOf(false) }
+    var showSaveDialog by remember { mutableStateOf(false) }
+    
     Box(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -161,6 +181,14 @@ fun MessageBubble(message: Message) {
             modifier = Modifier
                 .fillMaxWidth(0.8f)
                 .align(alignment)
+                .combinedClickable(
+                    onClick = { /* Regular click - no action */ },
+                    onLongClick = {
+                        if (onSaveToMemory != null && !message.isStreaming) {
+                            showContextMenu = true
+                        }
+                    }
+                )
         ) {
             Column(
                 modifier = Modifier.padding(12.dp)
@@ -180,5 +208,53 @@ fun MessageBubble(message: Message) {
                 }
             }
         }
+        
+        // Context menu for saving to memory
+        DropdownMenu(
+            expanded = showContextMenu,
+            onDismissRequest = { showContextMenu = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("⭐ Save to Memory") },
+                onClick = {
+                    showContextMenu = false
+                    showSaveDialog = true
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Star,
+                        contentDescription = "Save to Memory"
+                    )
+                }
+            )
+        }
+    }
+    
+    // Save to memory confirmation dialog
+    if (showSaveDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveDialog = false },
+            title = { Text("Save to Memory") },
+            text = { 
+                Text("Save this message as a personal memory?\n\n\"${message.text.take(100)}${if (message.text.length > 100) "..." else ""}\"")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onSaveToMemory?.invoke(message.text)
+                        showSaveDialog = false
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showSaveDialog = false }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }

@@ -14,6 +14,7 @@ import edu.upt.assistant.data.local.db.AppDatabase
 import edu.upt.assistant.data.local.db.ConversationDao
 import edu.upt.assistant.data.local.db.MessageDao
 import edu.upt.assistant.data.local.db.DocumentDao
+import edu.upt.assistant.data.local.db.MemoryDao
 import java.util.prefs.Preferences
 import javax.inject.Singleton
 
@@ -38,6 +39,10 @@ object DataModule {
   @Provides
   fun provideDocumentDao(db: AppDatabase): DocumentDao =
     db.documentDao()
+
+  @Provides
+  fun provideMemoryDao(db: AppDatabase): MemoryDao =
+    db.memoryDao()
 
   @Provides
   @Singleton

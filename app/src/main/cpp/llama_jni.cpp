@@ -65,10 +65,13 @@ static inline bool should_stop_generation(llama_token tok,
 
 // Best-effort KV clear compatible with older llama.cpp
 static inline void kv_clear_compat(llama_context* ctx) {
-    // New API name in recent versions is llama_kv_cache_clear(ctx);
-    // For older versions:
+#if defined(LLAMA_KV_CACHE_CLEAR) || defined(LLAMA_API_KV_CACHE_CLEAR)
+    llama_kv_cache_clear(ctx);
+#else
     llama_kv_self_clear(ctx);
+#endif
 }
+
 
 // ---------- JNI: init / free ----------
 
@@ -227,13 +230,20 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerate(JNIEnv *env, jclass, jlong ctxP
     const llama_token tok_eos = llama_vocab_eos(vocab);
     const llama_token tok_eot = llama_vocab_eot(vocab); // may be -1
     llama_token tok_im_end = -1;
+    llama_token tok_gemma_eot = -1;
     {
-        // Properly tokenize the literal control token:
+        // ChatML end
         static const char* IM_END = "<|im_end|>";
         llama_token tmp[8];
-        int32_t n = llama_tokenize(vocab, IM_END, (int32_t)strlen(IM_END),
-                                   tmp, 8, /*add_special=*/true, /*parse_special=*/true);
-        if (n == 1) tok_im_end = tmp[0];
+        int32_t n1 = llama_tokenize(vocab, IM_END, (int32_t)strlen(IM_END),
+                                    tmp, 8, /*add_special=*/true, /*parse_special=*/true);
+        if (n1 == 1) tok_im_end = tmp[0];
+
+        // Gemma end-of-turn
+        static const char* GEMMA_EOT = "<end_of_turn>";
+        int32_t n2 = llama_tokenize(vocab, GEMMA_EOT, (int32_t)strlen(GEMMA_EOT),
+                                    tmp, 8, /*add_special=*/true, /*parse_special=*/true);
+        if (n2 == 1) tok_gemma_eot = tmp[0];
     }
 
     // Decode loop
@@ -243,7 +253,8 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerate(JNIEnv *env, jclass, jlong ctxP
 
     for (int i = 0; i < maxTokens; ++i) {
         llama_token next = llama_sampler_sample(sampler, ctx, -1);
-        if (should_stop_generation(next, vocab, tok_eos, tok_im_end, tok_eot)) break;
+        if (should_stop_generation(next, vocab, tok_eos, tok_im_end, tok_eot) || (tok_gemma_eot != -1 && next == tok_gemma_eot))
+            break;
 
         const char *piece = llama_vocab_get_text(vocab, next);
         if (!piece) break;
@@ -349,12 +360,21 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(JNIEnv *env, jclass, jlon
     const llama_token tok_eos = llama_vocab_eos(vocab);
     const llama_token tok_eot = llama_vocab_eot(vocab);
     llama_token tok_im_end = -1;
+    llama_token tok_gemma_eot = -1;
     {
-        static const char* IM_END = "<|im_end|>";
         llama_token tmp[8];
-        int32_t n = llama_tokenize(vocab, IM_END, (int32_t)strlen(IM_END),
-                                   tmp, 8, /*add_special=*/true, /*parse_special=*/true);
-        if (n == 1) tok_im_end = tmp[0];
+
+        // ChatML end
+        const char *s1 = "<|im_end|>";
+        int32_t n1 = llama_tokenize(vocab, s1, (int32_t)strlen(s1),
+                                    tmp, 8, /*add_special=*/true, /*parse_special=*/true);
+        if (n1 == 1) tok_im_end = tmp[0];
+
+        // Gemma end-of-turn
+        const char *s2 = "<end_of_turn>";
+        int32_t n2 = llama_tokenize(vocab, s2, (int32_t)strlen(s2),
+                                    tmp, 8, /*add_special=*/true, /*parse_special=*/true);
+        if (n2 == 1) tok_gemma_eot = tmp[0];
     }
 
     int n_cur = ntok;
@@ -371,7 +391,7 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(JNIEnv *env, jclass, jlon
             logged_first_sample = true;
         }
 
-        if (should_stop_generation(next, vocab, tok_eos, tok_im_end, tok_eot)) break;
+        if (should_stop_generation(next, vocab, tok_eos, tok_im_end, tok_eot) || (tok_gemma_eot != -1 && next == tok_gemma_eot)) break;
 
         const char *piece = llama_vocab_get_text(vocab, next);
         if (!piece) break;

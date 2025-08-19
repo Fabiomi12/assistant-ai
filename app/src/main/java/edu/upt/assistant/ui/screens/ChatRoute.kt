@@ -6,6 +6,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import edu.upt.assistant.domain.ChatViewModel
 import edu.upt.assistant.ui.navigation.HISTORY_ROUTE
+import edu.upt.assistant.ui.navigation.MEMORY_ROUTE
 import edu.upt.assistant.ui.navigation.NEW_CHAT_ROUTE
 import edu.upt.assistant.ui.navigation.SETTINGS_ROUTE
 import kotlinx.coroutines.flow.filter
@@ -87,6 +89,9 @@ fun ChatRoute(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { navController.navigate(MEMORY_ROUTE) }) {
+                        Icon(Icons.Default.Star, contentDescription = "Memory")
+                    }
                     IconButton(onClick = { navController.navigate(HISTORY_ROUTE) }) {
                         Icon(Icons.Default.History, contentDescription = "History")
                     }
@@ -111,7 +116,10 @@ fun ChatRoute(
                 }
                 vm.sendMessage(conversationId, text)
             },
-            initialMessage = initialMessage
+            initialMessage = initialMessage,
+            onSaveToMemory = { messageText ->
+                vm.saveToMemory(messageText)
+            }
         )
     }
 }

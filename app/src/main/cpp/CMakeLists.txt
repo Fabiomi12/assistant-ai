@@ -5,7 +5,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Prefer Release for native code (big speedup)
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
@@ -14,47 +13,49 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
 
 set(CMAKE_ANDROID_STL_TYPE c++_shared)
 
-# 16 KB page-size (Android 15+)
+# --- Point to your vendored llama.cpp directory (adjust if you used a different path)
+set(LLAMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/llama.cpp)
+
+# 16 KB page-size
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
 set(CMAKE_EXE_LINKER_FLAGS    "${CMAKE_EXE_LINKER_FLAGS}    -Wl,-z,max-page-size=16384")
 
-# llama.cpp / ggml options (CPU NEON path; fast/stable on phone)
-set(LLAMA_NO_MMAP OFF CACHE BOOL "Disable llama-mmap" FORCE)
-set(GGML_BLAS OFF CACHE BOOL "ggml: use BLAS" FORCE)
-set(GGML_SHARED OFF CACHE BOOL "ggml: build shared lib" FORCE)
-set(GGML_BACKEND_SHARED OFF CACHE BOOL "ggml: build shared backend" FORCE)
-# add/keep these toggles:
-set(GGML_OPENMP OFF CACHE BOOL "ggml: disable OpenMP" FORCE)
-set(GGML_USE_OPENMP OFF CACHE BOOL "ggml: disable OpenMP (legacy toggle)" FORCE)
-set(GGML_THREADPOOL ON CACHE BOOL "ggml: enable internal threadpool" FORCE)
+# ggml/llama toggles
+set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
+set(GGML_USE_OPENMP OFF CACHE BOOL "" FORCE)
+set(GGML_THREADPOOL ON CACHE BOOL "" FORCE)
+set(GGML_BLAS OFF CACHE BOOL "" FORCE)
+set(GGML_SHARED OFF CACHE BOOL "" FORCE)
+set(GGML_BACKEND_SHARED OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 
-set(LLAMA_BUILD_TESTS OFF CACHE BOOL "llama: build tests" FORCE)
-set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "llama: build examples" FORCE)
-set(LLAMA_BUILD_SERVER OFF CACHE BOOL "llama: build server" FORCE)
+# Export compile commands so the IDE indexer has an authoritative database
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Bring in llama.cpp (assumes it's at src/main/cpp/llama.cpp)
-add_subdirectory(llama.cpp llama_cpp_build)
+# Bring in llama.cpp (this creates target 'llama')
+add_subdirectory(${LLAMA_DIR} ${CMAKE_CURRENT_BINARY_DIR}/llama_cpp_build)
 
-# Our JNI bridge
-add_library(llama_jni SHARED llama_jni.cpp)
-
-# Android system libs
-find_library(log-lib log)
-
-# Headers
-target_include_directories(llama_jni PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/ggml/include
+# Your JNI library target that OWNS llama_jni.cpp
+add_library(llama_jni SHARED
+        ${CMAKE_CURRENT_SOURCE_DIR}/llama_jni.cpp
 )
 
-# Compile options (add pthread here; no need for Threads::Threads target)
-target_compile_options(llama_jni PRIVATE -fPIC -pthread -DGGML_USE_CPU=1)
+# Headers the IDE must see to resolve includes
+target_include_directories(llama_jni PRIVATE
+        ${LLAMA_DIR}
+        ${LLAMA_DIR}/include
+        ${LLAMA_DIR}/src
+        ${LLAMA_DIR}/ggml/include
+)
 
-# Linker options
+# Compile / link options
+target_compile_options(llama_jni PRIVATE -fPIC -pthread -DGGML_USE_CPU=1)
 target_link_options(llama_jni PRIVATE "LINKER:-z,max-page-size=16384" -pthread)
 
-# Link order: llama first; ggml is linked statically by llama when GGML_SHARED=OFF
+find_library(log-lib log)
+
 target_link_libraries(llama_jni
         llama
         ${log-lib}
@@ -63,7 +64,7 @@ target_link_libraries(llama_jni
         dl
 )
 
-# (Optional) propagate 16KB flag to llama target too
+# (Optional) propagate 16KB flag to llama too
 if(TARGET llama)
     set_target_properties(llama PROPERTIES LINK_FLAGS "-Wl,-z,max-page-size=16384")
 endif()

@@ -49,6 +49,10 @@ class ChatViewModel @Inject constructor(
     // This SharedFlow will emit each token as it arrives
     private val _streamedTokens = MutableSharedFlow<String>(replay = 0)
     val streamedTokens: SharedFlow<String> = _streamedTokens.asSharedFlow()
+    
+    // Memory suggestion state
+    private val _memorySuggestion = MutableStateFlow<String?>(null)
+    val memorySuggestion: StateFlow<String?> = _memorySuggestion.asStateFlow()
 
     // Track current conversation being streamed
     private val _currentStreamingConversation = MutableStateFlow<String?>(null)
@@ -129,6 +133,9 @@ class ChatViewModel @Inject constructor(
         Log.d("ChatViewModel", "Sending message to $conversationId: $text")
         _currentStreamingConversation.value = conversationId
 
+        // Check if this looks like a personal statement worth saving
+        checkForMemorySuggestion(text)
+
         viewModelScope.launch {
             try {
                 repo.sendMessage(conversationId, text)
@@ -174,6 +181,88 @@ class ChatViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.w("ChatViewModel", "Failed to clear KV cache: ${e.message}")
+            }
+        }
+    }
+
+    // Memory-related methods
+    private fun checkForMemorySuggestion(text: String) {
+        val lowerText = text.lowercase()
+        
+        // Check for personal statements that might be worth saving as memory
+        val personalPatterns = listOf(
+            "my hobbies?\\s+(?:are?|include)",
+            "i (?:like|enjoy|love|prefer)",
+            "my favorite",
+            "i usually",
+            "i'm (?:into|interested in)",
+            "i live in",
+            "my name is",
+            "i study",
+            "i work",
+            "i'm a"
+        )
+        
+        val hasPersonalStatement = personalPatterns.any { pattern ->
+            Regex(pattern).containsMatchIn(lowerText)
+        }
+        
+        if (hasPersonalStatement && text.length > 10) {
+            _memorySuggestion.value = text
+            Log.d("ChatViewModel", "Personal statement detected, suggesting memory save: $text")
+        }
+    }
+    
+    fun saveToMemory(content: String) {
+        viewModelScope.launch {
+            try {
+                val ragRepo = repo as? edu.upt.assistant.domain.rag.RagChatRepository
+                if (ragRepo != null) {
+                    val memoryId = ragRepo.addMemoryFromMessage(content)
+                    Log.d("ChatViewModel", "Saved memory with ID: $memoryId")
+                } else {
+                    Log.w("ChatViewModel", "Repository does not support memory operations")
+                }
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Error saving memory", e)
+            }
+        }
+    }
+    
+    fun dismissMemorySuggestion() {
+        _memorySuggestion.value = null
+    }
+    
+    fun getMemories(): Flow<List<edu.upt.assistant.data.local.db.MemoryEntity>>? {
+        val ragRepo = repo as? edu.upt.assistant.domain.rag.RagChatRepository
+        return ragRepo?.getAllMemories()
+    }
+    
+    fun deleteMemory(memoryId: String) {
+        viewModelScope.launch {
+            try {
+                val ragRepo = repo as? edu.upt.assistant.domain.rag.RagChatRepository
+                ragRepo?.deleteMemory(memoryId)
+                Log.d("ChatViewModel", "Deleted memory: $memoryId")
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Error deleting memory", e)
+            }
+        }
+    }
+    
+    fun addMemory(content: String, title: String?, importance: Int) {
+        viewModelScope.launch {
+            try {
+                val ragRepo = repo as? edu.upt.assistant.domain.rag.RagChatRepository
+                if (ragRepo != null) {
+                    val keywords = edu.upt.assistant.domain.memory.KeywordExtractor.extract(content)
+                    val memoryId = ragRepo.addMemory(content, title, listOf("personal"), keywords, importance)
+                    Log.d("ChatViewModel", "Added memory with ID: $memoryId")
+                } else {
+                    Log.w("ChatViewModel", "Repository does not support memory operations")
+                }
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Error adding memory", e)
             }
         }
     }

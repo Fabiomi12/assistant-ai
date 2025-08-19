@@ -12,8 +12,10 @@ import edu.upt.assistant.data.SettingsKeys
 import edu.upt.assistant.data.local.db.ConversationDao
 import edu.upt.assistant.data.local.db.DocumentDao
 import edu.upt.assistant.data.local.db.MessageDao
+import edu.upt.assistant.data.local.db.MemoryDao
 import edu.upt.assistant.domain.ChatRepository
 import edu.upt.assistant.domain.ChatRepositoryImpl
+import edu.upt.assistant.domain.memory.MemoryRepository
 import edu.upt.assistant.domain.rag.ConditionalChatRepository
 import edu.upt.assistant.domain.rag.DocumentProcessor
 import edu.upt.assistant.domain.rag.DocumentRepository
@@ -43,12 +45,20 @@ object RagModule {
 
     @Provides
     @Singleton
+    fun provideMemoryRepository(
+        memoryDao: MemoryDao,
+        vectorStore: VectorStore
+    ): MemoryRepository = MemoryRepository(memoryDao, vectorStore)
+
+    @Provides
+    @Singleton
     fun provideRagChatRepository(
         baseRepository: ChatRepositoryImpl,
         documentRepository: DocumentRepository,
         conv: ConversationDao,
-        msgDao: MessageDao
-    ): RagChatRepository = RagChatRepository(baseRepository, documentRepository, msgDao, conv)
+        msgDao: MessageDao,
+        memoryRepository: MemoryRepository
+    ): RagChatRepository = RagChatRepository(baseRepository, documentRepository, memoryRepository,msgDao, conv)
 
     @Provides
     @Singleton
