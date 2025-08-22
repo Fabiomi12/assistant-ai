@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import edu.upt.assistant.domain.ModelDownloadManager
 import edu.upt.assistant.domain.ModelState
+import edu.upt.assistant.domain.utils.ModelUtils.fileNameFrom
 
 @Composable
 fun GlobalDownloadIndicator(
@@ -62,7 +63,7 @@ fun GlobalDownloadIndicator(
                         if (progress != null) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(
-                                    downloadManager.fileNameFrom(url),
+                                    fileNameFrom(url),
                                     style = MaterialTheme.typography.bodySmall
                                 )
                                 LinearProgressIndicator(

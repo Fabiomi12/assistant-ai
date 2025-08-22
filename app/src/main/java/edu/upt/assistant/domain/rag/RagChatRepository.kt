@@ -1,12 +1,16 @@
 package edu.upt.assistant.domain.rag
 
+import android.content.Context
 import android.os.Process
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import edu.upt.assistant.LlamaNative
 import edu.upt.assistant.data.local.db.ConversationDao
 import edu.upt.assistant.data.local.db.ConversationEntity
 import edu.upt.assistant.data.local.db.MessageDao
 import edu.upt.assistant.data.local.db.MessageEntity
+import edu.upt.assistant.data.metrics.GenerationMetrics
+import edu.upt.assistant.data.metrics.MetricsLogger
 import edu.upt.assistant.domain.ChatRepository
 import edu.upt.assistant.domain.ChatRepositoryImpl
 import edu.upt.assistant.domain.ConversationManager
@@ -15,6 +19,7 @@ import edu.upt.assistant.domain.memory.MemoryRepository
 import edu.upt.assistant.domain.prompts.ConversationMessage
 import edu.upt.assistant.domain.prompts.MessageRole
 import edu.upt.assistant.domain.prompts.PromptTemplateFactory
+import edu.upt.assistant.domain.utils.ModelUtils.fileNameFrom
 import edu.upt.assistant.ui.screens.Conversation
 import edu.upt.assistant.ui.screens.Message
 import kotlinx.coroutines.Dispatchers
@@ -27,20 +32,32 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+
 @Singleton
 class RagChatRepository @Inject constructor(
     private val baseRepository: ChatRepositoryImpl,
     private val documentRepository: DocumentRepository,
     private val memoryRepository: MemoryRepository,
     private val msgDao: MessageDao,
-    private val convDao: ConversationDao
+    private val convDao: ConversationDao,
+    @ApplicationContext private val appContext: Context
 ) : ChatRepository {
 
     companion object {
         private const val TAG = "RagChatRepository"
+        private const val MAX_CTX_TOKENS = 220
+        private const val MAX_MEM_TOKENS = 80
+        private const val N_BATCH = 256
+        private const val N_UBATCH = 64
 
-        // very rough but good-enough for budgeting on-device
         private fun estTokens(s: String): Int = (s.length / 4).coerceAtLeast(1)
+
+        private fun extractQuant(modelUrl: String): String {
+            val file = modelUrl.substringAfterLast('/').substringAfterLast('\\')
+            // e.g., gemma-3n-E2B-it-Q4_K_M.gguf -> Q4_K_M
+            val q = Regex("-(Q[^-.]+)").find(file)?.groupValues?.getOrNull(1)
+            return q ?: file
+        }
 
         /** Trim to a safe sentence boundary (., ?, !, or newline). If none, return whole. */
         private fun trimToSentenceBoundary(s: String): String {
@@ -48,9 +65,7 @@ class RagChatRepository @Inject constructor(
             return if (idx >= 0 && idx < s.length - 1) s.substring(0, idx + 1) else s
         }
 
-        // Keep separate budgets so memory doesn’t starve docs (tweak as you like)
-        private const val MAX_CTX_TOKENS = 220
-        private const val MAX_MEM_TOKENS = 80
+
     }
 
     private val managers = mutableMapOf<String, ConversationManager>()
@@ -200,9 +215,18 @@ class RagChatRepository @Inject constructor(
             Log.d(TAG, prompt)
             Log.d(TAG, "===== END OF PROMPT =====")
 
-            // 6) generate (stream)
+            // --- Metrics: capture pre state ---
+            val startBattery = MetricsLogger.batteryLevel(appContext)
+            val startTempC   = MetricsLogger.deviceTemperature(appContext)
+            val modelUrl = runBlocking { baseRepository.getModelUrl() }
+
+            val modelQuant = extractQuant(modelUrl)
+
+            val nThreads = minOf(8, maxOf(6, Runtime.getRuntime().availableProcessors() / 2))
+
             val llamaStart = System.currentTimeMillis()
             var firstTokenTime: Long? = null
+            var tokenCount = 0
             val builder = StringBuilder()
 
             withContext(Dispatchers.IO) {
@@ -224,6 +248,7 @@ class RagChatRepository @Inject constructor(
                         if (token == "<end_of_turn>" || token == "<|im_end|>") {
                             return@llamaGenerateStream
                         }
+                        tokenCount++
 
                         val normalized = baseRepository.normalizeTokenPublic(token)
                         val out = if (builder.isEmpty()) normalized.trimStart() else normalized
@@ -235,12 +260,47 @@ class RagChatRepository @Inject constructor(
                 }
             }
 
-            // 7) save assistant reply + update manager history
             val reply = builder.toString().trim()
             manager.appendUser(text)      // add the original user message
             manager.appendAssistant(reply)
 
+            // --- Metrics: write a row ---
             val replyTime = System.currentTimeMillis()
+            val endBattery = MetricsLogger.batteryLevel(appContext)
+            val endTempC   = MetricsLogger.deviceTemperature(appContext)
+
+            val prefillMs       = (firstTokenTime ?: replyTime) - llamaStart
+            val firstTokenDelay = prefillMs
+            val decodeMs        = replyTime - (firstTokenTime ?: replyTime)
+
+            // approximate tokens/sec (either from tokenCount or chars/4)
+            val outTokApprox    = maxOf(tokenCount, estTokens(builder.toString()))
+            val decodeSpeed     = if (decodeMs > 0) outTokApprox / (decodeMs / 1000.0) else 0.0
+
+            try {
+                MetricsLogger.log(
+                    appContext,
+                    GenerationMetrics(
+                        timestamp         = replyTime,
+                        prefillTimeMs     = prefillMs,
+                        firstTokenDelayMs = firstTokenDelay,
+                        decodeSpeed       = decodeSpeed,
+                        batteryDelta      = startBattery - endBattery,
+                        startTempC        = startTempC,
+                        endTempC          = endTempC,
+                        promptChars       = prompt.length,
+                        promptTokens      = promptTokens,
+                        nThreads          = nThreads,
+                        nBatch            = N_BATCH,
+                        nUbatch           = N_UBATCH,
+                        modelName         = fileNameFrom(modelUrl),
+                        modelQuant        = modelQuant
+                    )
+                )
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed to write metrics: ${t.message}")
+            }
+
             msgDao.insert(
                 MessageEntity(
                     conversationId = conversationId,

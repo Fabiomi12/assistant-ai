@@ -2,6 +2,7 @@ package edu.upt.assistant.domain
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
+import edu.upt.assistant.domain.utils.ModelUtils.fileNameFrom
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,7 +12,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
-import java.net.URI
 import java.net.URL
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -56,12 +56,6 @@ class ModelDownloadManager @Inject constructor(
 
     // Track active download jobs
     private val activeDownloadJobs = mutableMapOf<String, kotlinx.coroutines.Job>()
-
-    fun fileNameFrom(url: String): String {
-        val path = URI(url).path
-        return path.substringAfterLast('/').substringBefore('?').takeIf { it.isNotBlank() }
-            ?: "model_${url.hashCode()}.gguf"
-    }
 
     private fun modelFile(fileName: String): File = File(modelsDir, fileName)
 

@@ -6,7 +6,6 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import edu.upt.assistant.LlamaNative
-import edu.upt.assistant.domain.prompts.PromptTemplateFactory
 import edu.upt.assistant.TokenCallback
 import edu.upt.assistant.data.SettingsKeys
 import edu.upt.assistant.data.local.db.ConversationDao
@@ -15,6 +14,7 @@ import edu.upt.assistant.data.local.db.MessageDao
 import edu.upt.assistant.data.local.db.MessageEntity
 import edu.upt.assistant.data.metrics.GenerationMetrics
 import edu.upt.assistant.data.metrics.MetricsLogger
+import edu.upt.assistant.domain.prompts.PromptTemplateFactory
 import edu.upt.assistant.ui.screens.Conversation
 import edu.upt.assistant.ui.screens.Message
 import kotlinx.coroutines.CoroutineScope
@@ -309,6 +309,7 @@ class ChatRepositoryImpl @Inject constructor(
                 nThreads = threadCount,
                 nBatch = N_BATCH,
                 nUbatch = N_UBATCH,
+                modelName = modelName,
                 modelQuant = modelName
             )
             MetricsLogger.log(appContext, metrics)
