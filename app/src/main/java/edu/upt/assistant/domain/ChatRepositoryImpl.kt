@@ -13,6 +13,8 @@ import edu.upt.assistant.data.local.db.ConversationDao
 import edu.upt.assistant.data.local.db.ConversationEntity
 import edu.upt.assistant.data.local.db.MessageDao
 import edu.upt.assistant.data.local.db.MessageEntity
+import edu.upt.assistant.data.metrics.GenerationMetrics
+import edu.upt.assistant.data.metrics.MetricsLogger
 import edu.upt.assistant.ui.screens.Conversation
 import edu.upt.assistant.ui.screens.Message
 import kotlinx.coroutines.CoroutineScope
@@ -47,9 +49,16 @@ class ChatRepositoryImpl @Inject constructor(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var llamaCtxDeferred: Deferred<Long>? = null
+    private var threadCount: Int = 0
+    private var modelName: String = ""
 
     init {
         observeModelChanges()
+    }
+
+    companion object {
+        private const val N_BATCH = 256
+        private const val N_UBATCH = 64
     }
     suspend fun getModelUrl(): String {
         return dataStore.data.map { prefs -> prefs[SettingsKeys.SELECTED_MODEL] ?: ModelDownloadManager.DEFAULT_MODEL_URL }.first()
@@ -68,9 +77,11 @@ class ChatRepositoryImpl @Inject constructor(
             Log.d("ChatRepository", "Model path: $modelPath")
             // Use optimized thread count (6-8) instead of all processors for better performance
             val optimalThreads = minOf(8, maxOf(6, Runtime.getRuntime().availableProcessors() / 2))
+            threadCount = optimalThreads
+            modelName = java.io.File(modelPath).name
             val ctx = LlamaNative.llamaCreate(
                 modelPath,
-                optimalThreads
+                threadCount
             )
             if (ctx == 0L) {
                 Log.e("ChatRepository", "Failed to create llama context")
@@ -169,6 +180,8 @@ class ChatRepositoryImpl @Inject constructor(
             val ctx = getLlamaContext()
             Log.d("ChatRepository", "Got llama context: $ctx")
 
+            val startBattery = MetricsLogger.batteryLevel(appContext)
+            val startTemp = MetricsLogger.deviceTemperature(appContext)
             val now = System.currentTimeMillis()
             // 1) persist user message
             msgDao.insert(
@@ -193,8 +206,9 @@ class ChatRepositoryImpl @Inject constructor(
             // 3) stream tokens
             val llamaStartTime = System.currentTimeMillis()
             var firstTokenTime: Long? = null
+            var tokenCount = 0
             val promptTokens = prompt.length / 4
-            Log.d("ChatRepository", "PERFORMANCE: Prompt tokens: $promptTokens, n_ctx: 1536, n_batch: 256, n_ubatch: 64")
+            Log.d("ChatRepository", "PERFORMANCE: Prompt tokens: $promptTokens, n_ctx: 1536, n_batch: $N_BATCH, n_ubatch: $N_UBATCH")
             
             val builder = StringBuilder()
             withContext(Dispatchers.IO) {
@@ -211,8 +225,9 @@ class ChatRepositoryImpl @Inject constructor(
                                 val prefillTime = firstTokenTime!! - llamaStartTime
                                 Log.d("ChatRepository", "🚀 PERFORMANCE: First token after ${prefillTime}ms (prefill time)")
                             }
-                            
+
                             Log.d("ChatRepository", "Generated token: $token")
+                            tokenCount++
 
                             val normalized = normalizeToken(token)
                             val output = if (builder.isEmpty()) normalized.trimStart() else normalized
@@ -248,6 +263,28 @@ class ChatRepositoryImpl @Inject constructor(
             )
             convDao.upsert(ConversationEntity(conversationId, conversationId, cleanReply, replyTime))
             Log.d("ChatRepository", "Assistant message saved")
+
+            val endBattery = MetricsLogger.batteryLevel(appContext)
+            val endTemp = MetricsLogger.deviceTemperature(appContext)
+            val prefillTime = (firstTokenTime ?: replyTime) - llamaStartTime
+            val decodeTimeMs = replyTime - (firstTokenTime ?: replyTime)
+            val decodeSpeed = if (decodeTimeMs > 0) tokenCount / (decodeTimeMs / 1000.0) else 0.0
+            val metrics = GenerationMetrics(
+                timestamp = replyTime,
+                prefillTimeMs = prefillTime,
+                firstTokenDelayMs = prefillTime,
+                decodeSpeed = decodeSpeed,
+                batteryDelta = startBattery - endBattery,
+                startTempC = startTemp,
+                endTempC = endTemp,
+                promptChars = prompt.length,
+                promptTokens = promptTokens,
+                nThreads = threadCount,
+                nBatch = N_BATCH,
+                nUbatch = N_UBATCH,
+                modelQuant = modelName
+            )
+            MetricsLogger.log(appContext, metrics)
 
         } catch (e: Exception) {
             Log.e("ChatRepository", "Error in sendMessage", e)
