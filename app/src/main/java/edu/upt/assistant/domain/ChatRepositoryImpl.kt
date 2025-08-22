@@ -59,6 +59,7 @@ class ChatRepositoryImpl @Inject constructor(
     companion object {
         private const val N_BATCH = 256
         private const val N_UBATCH = 64
+        private val LONG_RESPONSE_REGEX = Regex("6\\s*(?:-|\u2013)\\s*7\\s+sentences", RegexOption.IGNORE_CASE)
     }
     suspend fun getModelUrl(): String {
         return dataStore.data.map { prefs -> prefs[SettingsKeys.SELECTED_MODEL] ?: ModelDownloadManager.DEFAULT_MODEL_URL }.first()
@@ -170,6 +171,8 @@ class ChatRepositoryImpl @Inject constructor(
     override fun sendMessage(conversationId: String, text: String): Flow<String> = channelFlow {
         Log.d("ChatRepository", "Sending message to $conversationId: $text")
 
+        val expectsLongAnswer = LONG_RESPONSE_REGEX.containsMatchIn(text)
+
         val url = getModelUrl()
         if (!modelDownloadManager.isModelAvailable(url)) {
             Log.e("ChatRepository", "Model not available when sending message")
@@ -209,8 +212,9 @@ class ChatRepositoryImpl @Inject constructor(
             var tokenCount = 0
             val promptTokens = prompt.length / 4
             Log.d("ChatRepository", "PERFORMANCE: Prompt tokens: $promptTokens, n_ctx: 1536, n_batch: $N_BATCH, n_ubatch: $N_UBATCH")
-            
+
             val builder = StringBuilder()
+            var generationFailed = false
             withContext(Dispatchers.IO) {
                 Log.d("ChatRepository", "Starting token generation at ${System.currentTimeMillis()}")
                 try {
@@ -239,9 +243,17 @@ class ChatRepositoryImpl @Inject constructor(
                             // Keep the callback alive
                         }
                     )
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
+                    generationFailed = true
                     Log.e("ChatRepository", "Error during streaming", e)
-                    trySend("Error: Failed to generate response")
+                    val msg = if (e.message?.contains("llama_decode") == true || e is OutOfMemoryError) {
+                        "Sorry, I ran out of memory. Could you try again with a shorter context?"
+                    } else {
+                        "Error: Failed to generate response"
+                    }
+                    builder.clear()
+                    builder.append(msg)
+                    trySend(msg)
                 }
             }
 
@@ -263,6 +275,21 @@ class ChatRepositoryImpl @Inject constructor(
             )
             convDao.upsert(ConversationEntity(conversationId, conversationId, cleanReply, replyTime))
             Log.d("ChatRepository", "Assistant message saved")
+
+            if (!generationFailed && expectsLongAnswer && tokenCount < 20) {
+                val followUp = "Want me to continue?"
+                val followUpTime = System.currentTimeMillis()
+                msgDao.insert(
+                    MessageEntity(
+                        conversationId = conversationId,
+                        text = followUp,
+                        isUser = false,
+                        timestamp = followUpTime
+                    )
+                )
+                convDao.upsert(ConversationEntity(conversationId, conversationId, followUp, followUpTime))
+                trySend("\n" + followUp)
+            }
 
             val endBattery = MetricsLogger.batteryLevel(appContext)
             val endTemp = MetricsLogger.deviceTemperature(appContext)
