@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -46,8 +48,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
+import edu.upt.assistant.data.metrics.MetricsLogger
 import edu.upt.assistant.domain.DownloadProgress
 import edu.upt.assistant.domain.ModelDownloadManager
 import edu.upt.assistant.domain.ModelInfo
@@ -79,6 +84,7 @@ fun SettingsScreen(
 
   // Collect live download progress
   val downloadProgress by downloadManager.downloadProgress.collectAsState()
+  val context = LocalContext.current
 
   Scaffold(
     topBar = {
@@ -174,6 +180,30 @@ fun SettingsScreen(
               )
             }
             Switch(checked = autoSaveMemories, onCheckedChange = onAutoSaveMemoriesToggle)
+          }
+
+          Button(
+            onClick = {
+              if (!MetricsLogger.hasMetrics(context)) {
+                Toast.makeText(context, "No metrics recorded yet", Toast.LENGTH_SHORT).show()
+              } else {
+                val file = MetricsLogger.getFile(context)
+                val uri = FileProvider.getUriForFile(
+                  context,
+                  "${context.packageName}.fileprovider",
+                  file
+                )
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                  type = "text/csv"
+                  putExtra(Intent.EXTRA_STREAM, uri)
+                  addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "Share metrics CSV"))
+              }
+            },
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Text("Export metrics CSV")
           }
         }
       }

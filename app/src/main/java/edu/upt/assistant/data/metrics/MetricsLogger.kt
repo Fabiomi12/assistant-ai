@@ -41,9 +41,17 @@ data class GenerationMetrics(
 object MetricsLogger {
     private const val FILE_NAME = "generation_metrics.csv"
     private const val HEADER = "timestamp,prefill_ms,first_token_ms,decode_speed,battery_delta,temp_start,temp_end,prompt_chars,prompt_tokens,n_threads,n_batch,n_ubatch,model\n"
+    private const val HEADER_LENGTH = HEADER.length
+
+    fun getFile(context: Context): File = File(context.applicationContext.filesDir, FILE_NAME)
+
+    fun hasMetrics(context: Context): Boolean {
+        val file = getFile(context)
+        return file.exists() && file.length() > HEADER_LENGTH
+    }
 
     fun log(context: Context, metrics: GenerationMetrics) {
-        val file = File(context.filesDir, FILE_NAME)
+        val file = getFile(context)
         val isNew = !file.exists()
         if (isNew) {
             file.writeText(HEADER)
