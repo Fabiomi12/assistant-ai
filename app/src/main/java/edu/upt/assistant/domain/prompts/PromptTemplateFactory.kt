@@ -30,7 +30,9 @@ object PromptTemplateFactory {
 
     // New: hybrid system prompt (not “RAG-only”)
     fun getSystemPromptForHybrid(): String = """
-You are a concise assistant.Use PERSONAL MEMORY / CONTEXT only for user-specific facts; otherwise answer from your own knowledge. Be concise.
+- Be concise
+- Use PERSONAL MEMORY/CONTEXT only for user-specific facts
+- Otherwise answer from your own knowledge
 """.trimIndent()
 
     // keep your other prompts if you still use them elsewhere
@@ -39,9 +41,8 @@ If the context does not contain the answer, reply: "I don't know based on the pr
 Answer in 1–2 sentences unless the user asks for more. Do not invent details."""
 
     fun getSystemPromptForNormal(): String = """
-You are a helpful, concise AI assistant.
-Respond naturally and directly to the user's messages.
-Keep responses focused and avoid generating lengthy or fictional conversations.
-Only respond as the Assistant - do not continue the conversation or create additional exchanges.
+- Be helpful and concise
+- Reply only as the assistant
+- Avoid long or fictional conversations
 """.trimIndent()
 }

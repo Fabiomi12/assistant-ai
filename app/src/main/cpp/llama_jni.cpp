@@ -250,9 +250,22 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerate(JNIEnv *env, jclass, jlong ctxP
     std::string output;
     output.reserve(std::max(16, (int)maxTokens * 4));
     int n_cur = ntok;
+    bool first = true;
 
     for (int i = 0; i < maxTokens; ++i) {
-        llama_token next = llama_sampler_sample(sampler, ctx, -1);
+        llama_token next;
+        if (first) {
+            llama_sampler *s_first = llama_sampler_chain_init(sparams);
+            llama_sampler_chain_add(s_first, llama_sampler_init_top_k(40));
+            llama_sampler_chain_add(s_first, llama_sampler_init_top_p(0.9f, 1));
+            llama_sampler_chain_add(s_first, llama_sampler_init_temp(0.2f));
+            llama_sampler_chain_add(s_first, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+            next = llama_sampler_sample(s_first, ctx, -1);
+            llama_sampler_free(s_first);
+            first = false;
+        } else {
+            next = llama_sampler_sample(sampler, ctx, -1);
+        }
         if (should_stop_generation(next, vocab, tok_eos, tok_im_end, tok_eot) || (tok_gemma_eot != -1 && next == tok_gemma_eot))
             break;
 

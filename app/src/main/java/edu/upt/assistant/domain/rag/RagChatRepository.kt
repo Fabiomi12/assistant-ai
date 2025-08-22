@@ -82,7 +82,7 @@ class RagChatRepository @Inject constructor(
 
     companion object {
         private const val TAG = "RagChatRepository"
-        private const val MAX_CONTEXT_LENGTH = 150 // keep tiny for prefill speed
+        private const val MAX_CONTEXT_TOKENS = 40 // ~160 chars, tiny for prefill speed
     }
 
     override fun getConversations(): Flow<List<Conversation>> = baseRepository.getConversations()
@@ -129,6 +129,7 @@ class RagChatRepository @Inject constructor(
             updateTemplateFromModel()
 
             // Preserve a tiny bit of history (last two turns), but rebuild manager so it reflects the new template/system
+            // retain at most the last user turn for continuity
             val prevHistoryMsgs = managers[conversationId]?.getHistory()?.takeLast(2).orEmpty()
             val prevHistory = prevHistoryMsgs.map { msg ->
                 ConversationMessage(
@@ -169,7 +170,10 @@ class RagChatRepository @Inject constructor(
 
             // 5) build final prompt (system + tiny history + current turn)
             val tPromptStart = System.currentTimeMillis()
-            val prompt = clampContext(manager.buildPromptWithHistory(prevHistory, currentMessage), guessMaxTokens(text))
+            val prompt = clampContext(
+                manager.buildPromptWithHistory(prevHistory, currentMessage),
+                guessMaxTokens(text)
+            )
             val tPromptEnd = System.currentTimeMillis()
             val promptTokens = prompt.length / 4 // rough
             Log.d(TAG, "PERFORMANCE: Prompt build ${tPromptEnd - tPromptStart}ms, ~${promptTokens} tok")
@@ -249,8 +253,9 @@ class RagChatRepository @Inject constructor(
             sb.appendLine("---")
 
             val ctx = sb.toString()
-            if (ctx.length > MAX_CONTEXT_LENGTH) {
-                ctx.substring(0, MAX_CONTEXT_LENGTH) + "...\n[Context truncated]\n---\n"
+            val maxChars = MAX_CONTEXT_TOKENS * 4
+            if (ctx.length > maxChars) {
+                ctx.substring(0, maxChars) + "...\n[Context truncated]\n---\n"
             } else ctx
         } catch (e: Exception) {
             Log.e(TAG, "Error retrieving context", e); ""
@@ -323,20 +328,28 @@ class RagChatRepository @Inject constructor(
         val single = Regex("""(\d+)\s*sentences?""", RegexOption.IGNORE_CASE).find(userText)
         return when {
             m != null -> {
-                val (a,b) = m.destructured
-                ((a.toInt() + b.toInt())/2 * 20).coerceIn(48, 192)
+                val (a, b) = m.destructured
+                ((a.toInt() + b.toInt()) / 2 * 20).coerceIn(64, 256)
             }
             single != null -> {
                 val n = single.groupValues[1].toInt()
-                (n * 20).coerceIn(48, 192)
+                (n * 20).coerceIn(64, 256)
             }
-            else -> 96
+            else -> 96 // default when no explicit length requested
         }
     }
 
     private fun clampContext(s: String, maxTok: Int = 120): String {
         val maxChars = maxTok * 4
-        return if (s.length > maxChars) s.take(maxChars) + "...\n[Context truncated]\n---\n" else s
+        if (s.length <= maxChars) return s
+        val sb = StringBuilder(maxChars + 32)
+        var i = 0
+        for (ch in s) {
+            if (i++ >= maxChars) break
+            sb.append(ch)
+        }
+        sb.append("...\n[Context truncated]\n---\n")
+        return sb.toString()
     }
 
 }
