@@ -244,12 +244,15 @@ class RagChatRepository @Inject constructor(
 
     private suspend fun retrieveContext(query: String): String {
         return try {
-            val retrievedChunks = documentRepository.searchSimilarContent(query, topK = 1)
+            // retrieve a few candidate chunks; DocumentRepository will deduplicate
+            val retrievedChunks = documentRepository.searchSimilarContent(query, topK = 3)
             if (retrievedChunks.isEmpty()) return ""
 
             val sb = StringBuilder()
             sb.appendLine("Context:")
-            retrievedChunks.forEach { chunk -> sb.appendLine(chunk.text.trim()) }
+            retrievedChunks.forEach { chunk ->
+                sb.appendLine("${chunk.text.trim()} [from: ${chunk.documentTitle}]")
+            }
             sb.appendLine("---")
 
             val ctx = sb.toString()

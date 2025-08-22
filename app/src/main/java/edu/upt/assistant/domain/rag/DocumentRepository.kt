@@ -99,7 +99,8 @@ class DocumentRepository @Inject constructor(
         Log.d(TAG, "Retrieved ${entities.size} documents from database")
         
         Log.d(TAG, "TIMING: Starting document processing at ${System.currentTimeMillis()}")
-        val retrievedChunks = mutableListOf<RetrievedChunk>()
+        // store chunks with their embeddings for deduplication
+        val retrievedChunks = mutableListOf<Pair<RetrievedChunk, FloatArray>>()
         
         entities.forEach { entity ->
             try {
@@ -115,19 +116,18 @@ class DocumentRepository @Inject constructor(
                     embeddings = embeddings,
                     topK = topK
                 )
-                
+
                 Log.d(TAG, "Found ${similarChunks.size} similar chunks in '${entity.title}'")
-                
+
                 similarChunks.forEach { similar ->
-                    retrievedChunks.add(
-                        RetrievedChunk(
-                            text = similar.text,
-                            similarity = similar.similarity,
-                            documentId = entity.id,
-                            documentTitle = entity.title,
-                            chunkIndex = similar.index
-                        )
+                    val chunk = RetrievedChunk(
+                        text = similar.text,
+                        similarity = similar.similarity,
+                        documentId = entity.id,
+                        documentTitle = entity.title,
+                        chunkIndex = similar.index
                     )
+                    retrievedChunks.add(chunk to embeddings[similar.index])
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing document '${entity.title}'", e)
@@ -135,17 +135,26 @@ class DocumentRepository @Inject constructor(
         }
         
         Log.d(TAG, "TIMING: Starting filtering and sorting at ${System.currentTimeMillis()}")
-        val filteredChunks = retrievedChunks.filter { it.similarity >= minSimilarity }
-        val result = filteredChunks
-            .sortedByDescending { it.similarity }
-            .take(topK)
+        val filtered = retrievedChunks
+            .filter { it.first.similarity >= minSimilarity }
+            .sortedByDescending { it.first.similarity }
+
+        val result = mutableListOf<RetrievedChunk>()
+        val usedEmbeddings = mutableListOf<FloatArray>()
+        for ((chunk, emb) in filtered) {
+            if (usedEmbeddings.none { vectorStore.cosineSimilarity(emb, it) > 0.8f }) {
+                result.add(chunk)
+                usedEmbeddings.add(emb)
+            }
+            if (result.size >= topK) break
+        }
         
         Log.d(TAG, "TIMING: Search completed at ${System.currentTimeMillis()}")
-        Log.d(TAG, "Search completed. ${retrievedChunks.size} total chunks, ${filteredChunks.size} above threshold ($minSimilarity), returning top ${result.size}")
+        Log.d(TAG, "Search completed. ${retrievedChunks.size} total chunks, ${filtered.size} above threshold ($minSimilarity), returning top ${result.size}")
         result.forEach { chunk ->
             Log.d(TAG, "Chunk similarity: ${chunk.similarity} from '${chunk.documentTitle}'")
         }
-        
+
         return result
     }
     
