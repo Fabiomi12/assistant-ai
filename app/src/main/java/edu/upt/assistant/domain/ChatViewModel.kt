@@ -7,6 +7,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import edu.upt.assistant.LlamaNative
 import edu.upt.assistant.ui.screens.Conversation
 import edu.upt.assistant.ui.screens.Message
+import edu.upt.assistant.domain.rag.RagChatRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -27,7 +28,14 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
-    private val repo: ChatRepository
+    private val repo: ChatRepository,
+    /**
+     * The conditional repository used for chat operations does not expose
+     * memory APIs. Inject the [RagChatRepository] directly so memory features
+     * (viewing/adding/deleting memories) work regardless of whether RAG is
+     * enabled for chatting.
+     */
+    private val ragRepo: RagChatRepository
 ) : ViewModel() {
 
     init {
@@ -216,13 +224,8 @@ class ChatViewModel @Inject constructor(
     fun saveToMemory(content: String) {
         viewModelScope.launch {
             try {
-                val ragRepo = repo as? edu.upt.assistant.domain.rag.RagChatRepository
-                if (ragRepo != null) {
-                    val memoryId = ragRepo.addMemoryFromMessage(content)
-                    Log.d("ChatViewModel", "Saved memory with ID: $memoryId")
-                } else {
-                    Log.w("ChatViewModel", "Repository does not support memory operations")
-                }
+                val memoryId = ragRepo.addMemoryFromMessage(content)
+                Log.d("ChatViewModel", "Saved memory with ID: $memoryId")
             } catch (e: Exception) {
                 Log.e("ChatViewModel", "Error saving memory", e)
             }
@@ -233,16 +236,13 @@ class ChatViewModel @Inject constructor(
         _memorySuggestion.value = null
     }
     
-    fun getMemories(): Flow<List<edu.upt.assistant.data.local.db.MemoryEntity>>? {
-        val ragRepo = repo as? edu.upt.assistant.domain.rag.RagChatRepository
-        return ragRepo?.getAllMemories()
-    }
+    fun getMemories(): Flow<List<edu.upt.assistant.data.local.db.MemoryEntity>> =
+        ragRepo.getAllMemories()
     
     fun deleteMemory(memoryId: String) {
         viewModelScope.launch {
             try {
-                val ragRepo = repo as? edu.upt.assistant.domain.rag.RagChatRepository
-                ragRepo?.deleteMemory(memoryId)
+                ragRepo.deleteMemory(memoryId)
                 Log.d("ChatViewModel", "Deleted memory: $memoryId")
             } catch (e: Exception) {
                 Log.e("ChatViewModel", "Error deleting memory", e)
@@ -253,14 +253,15 @@ class ChatViewModel @Inject constructor(
     fun addMemory(content: String, title: String?, importance: Int) {
         viewModelScope.launch {
             try {
-                val ragRepo = repo as? edu.upt.assistant.domain.rag.RagChatRepository
-                if (ragRepo != null) {
-                    val keywords = edu.upt.assistant.domain.memory.KeywordExtractor.extract(content)
-                    val memoryId = ragRepo.addMemory(content, title, listOf("personal"), keywords, importance)
-                    Log.d("ChatViewModel", "Added memory with ID: $memoryId")
-                } else {
-                    Log.w("ChatViewModel", "Repository does not support memory operations")
-                }
+                val keywords = edu.upt.assistant.domain.memory.KeywordExtractor.extract(content)
+                val memoryId = ragRepo.addMemory(
+                    content,
+                    title,
+                    listOf("personal"),
+                    keywords,
+                    importance
+                )
+                Log.d("ChatViewModel", "Added memory with ID: $memoryId")
             } catch (e: Exception) {
                 Log.e("ChatViewModel", "Error adding memory", e)
             }
