@@ -50,6 +50,8 @@ object MetricsLogger {
         return file.exists() && file.length() > HEADER_LENGTH
     }
 
+    fun getFile(context: Context): File = File(context.filesDir, FILE_NAME)
+
     fun log(context: Context, metrics: GenerationMetrics) {
         val file = getFile(context)
         val isNew = !file.exists()

@@ -36,6 +36,23 @@ class RagChatRepository @Inject constructor(
     private val convDao: ConversationDao
 ) : ChatRepository {
 
+    companion object {
+        private const val TAG = "RagChatRepository"
+
+        // very rough but good-enough for budgeting on-device
+        private fun estTokens(s: String): Int = (s.length / 4).coerceAtLeast(1)
+
+        /** Trim to a safe sentence boundary (., ?, !, or newline). If none, return whole. */
+        private fun trimToSentenceBoundary(s: String): String {
+            val idx = s.lastIndexOfAny(charArrayOf('.', '!', '?', '\n'))
+            return if (idx >= 0 && idx < s.length - 1) s.substring(0, idx + 1) else s
+        }
+
+        // Keep separate budgets so memory doesn’t starve docs (tweak as you like)
+        private const val MAX_CTX_TOKENS = 220
+        private const val MAX_MEM_TOKENS = 80
+    }
+
     private val managers = mutableMapOf<String, ConversationManager>()
 
     // pick at runtime (Hybrid for Gemma, Normal for others)
@@ -78,11 +95,6 @@ class RagChatRepository @Inject constructor(
             currentTemplate = PromptTemplateFactory.getTemplateForModel("")
             currentSystemPrompt = PromptTemplateFactory.getSystemPromptForNormal()
         }
-    }
-
-    companion object {
-        private const val TAG = "RagChatRepository"
-        private const val MAX_CONTEXT_TOKENS = 40 // ~160 chars, tiny for prefill speed
     }
 
     override fun getConversations(): Flow<List<Conversation>> = baseRepository.getConversations()
@@ -156,24 +168,31 @@ class RagChatRepository @Inject constructor(
             val currentMessage = buildString {
                 if (memoryHits.isNotEmpty()) {
                     appendLine("PERSONAL MEMORY")
-                    memoryHits.forEach { m -> appendLine("- ${m.content}") }
+                    var memBudget = MAX_MEM_TOKENS
+                    for (m in memoryHits) {
+                        val line = "- " + trimToSentenceBoundary(m.content.trim())
+                        val tks = estTokens(line)
+                        if (tks > memBudget) break
+                        appendLine(line)
+                        memBudget -= tks
+                    }
                     appendLine("---")
                 }
+
                 if (docCtx.isNotBlank()) {
                     appendLine("CONTEXT")
-                    appendLine(docCtx.trim())
+                    appendLine(docCtx)
                     appendLine("---")
                 }
+
                 appendLine("Question:")
                 append(text.trim())
             }
 
+
             // 5) build final prompt (system + tiny history + current turn)
             val tPromptStart = System.currentTimeMillis()
-            val prompt = clampContext(
-                manager.buildPromptWithHistory(prevHistory, currentMessage),
-                guessMaxTokens(text)
-            )
+            val prompt = manager.buildPromptWithHistory(prevHistory, currentMessage)
             val tPromptEnd = System.currentTimeMillis()
             val promptTokens = prompt.length / 4 // rough
             Log.d(TAG, "PERFORMANCE: Prompt build ${tPromptEnd - tPromptStart}ms, ~${promptTokens} tok")
@@ -202,8 +221,7 @@ class RagChatRepository @Inject constructor(
                                 "PERFORMANCE: First token after ${firstTokenTime - llamaStart}ms (prefill time)"
                             )
                         }
-                        if (token.contains("<end_of_turn>", ignoreCase = false)) {
-                            // stop reading further
+                        if (token == "<end_of_turn>" || token == "<|im_end|>") {
                             return@llamaGenerateStream
                         }
 
@@ -244,24 +262,34 @@ class RagChatRepository @Inject constructor(
 
     private suspend fun retrieveContext(query: String): String {
         return try {
-            // retrieve a few candidate chunks; DocumentRepository will deduplicate
-            val retrievedChunks = documentRepository.searchSimilarContent(query, topK = 3)
-            if (retrievedChunks.isEmpty()) return ""
-
-            val sb = StringBuilder()
-            sb.appendLine("Context:")
-            retrievedChunks.forEach { chunk ->
-                sb.appendLine("${chunk.text.trim()} [from: ${chunk.documentTitle}]")
+            val retrieved = documentRepository.searchSimilarContent(query, topK = 4)
+            if (retrieved.isEmpty()) {
+                Log.d(TAG, "No relevant context found for query: $query")
+                return ""
             }
-            sb.appendLine("---")
 
-            val ctx = sb.toString()
-            val maxChars = MAX_CONTEXT_TOKENS * 4
-            if (ctx.length > maxChars) {
-                ctx.substring(0, maxChars) + "...\n[Context truncated]\n---\n"
-            } else ctx
+            var budget = MAX_CTX_TOKENS
+            val sb = StringBuilder()
+
+            for (chunk in retrieved) {
+                val text = chunk.text.trim()
+                val tks = estTokens(text)
+                if (tks > budget) {
+                    val trimmed = trimToSentenceBoundary(text.take(budget * 4))
+                    if (trimmed.isNotBlank() && estTokens(trimmed) <= budget) {
+                        sb.appendLine(trimmed)
+                    }
+                    break
+                } else {
+                    sb.appendLine(text)
+                    budget -= tks
+                }
+            }
+
+            sb.toString().trim() // <-- RAW context, no headers, no '---'
         } catch (e: Exception) {
-            Log.e(TAG, "Error retrieving context", e); ""
+            Log.e(TAG, "Error retrieving context", e)
+            ""
         }
     }
 
@@ -325,7 +353,6 @@ class RagChatRepository @Inject constructor(
         }
     }
 
-    // --- add this helper inside RagChatRepository ---
     private fun guessMaxTokens(userText: String): Int {
         val m = Regex("""(\d+)\s*-\s*(\d+)\s*sentences""", RegexOption.IGNORE_CASE).find(userText)
         val single = Regex("""(\d+)\s*sentences?""", RegexOption.IGNORE_CASE).find(userText)
@@ -340,19 +367,6 @@ class RagChatRepository @Inject constructor(
             }
             else -> 96 // default when no explicit length requested
         }
-    }
-
-    private fun clampContext(s: String, maxTok: Int = 120): String {
-        val maxChars = maxTok * 4
-        if (s.length <= maxChars) return s
-        val sb = StringBuilder(maxChars + 32)
-        var i = 0
-        for (ch in s) {
-            if (i++ >= maxChars) break
-            sb.append(ch)
-        }
-        sb.append("...\n[Context truncated]\n---\n")
-        return sb.toString()
     }
 
 }
