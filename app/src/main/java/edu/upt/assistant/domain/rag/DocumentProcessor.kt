@@ -9,8 +9,9 @@ class DocumentProcessor {
     
     companion object {
         private const val TAG = "DocumentProcessor"
-        private const val CHUNK_SIZE = 500
-        private const val CHUNK_OVERLAP = 50
+        // RAG-friendly defaults: 512–800 char chunks with 50–80% overlap
+        private const val CHUNK_SIZE = 700
+        private const val CHUNK_OVERLAP = 420 // ~60% overlap
     }
 
     suspend fun processDocument(
@@ -59,7 +60,11 @@ class DocumentProcessor {
             }
             
             chunks.add(text.substring(start, actualEnd).trim())
-            start = maxOf(actualEnd - CHUNK_OVERLAP, actualEnd)
+            start = if (actualEnd >= text.length) {
+                actualEnd
+            } else {
+                maxOf(actualEnd - CHUNK_OVERLAP, 0)
+            }
         }
         
         return chunks

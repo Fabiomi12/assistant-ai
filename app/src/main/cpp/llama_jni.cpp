@@ -218,10 +218,12 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerate(JNIEnv *env, jclass, jlong ctxP
         cur += nb;
     }
 
-    // Sampler chain
+    // Sampler chain tuned for CPU: repeat penalty, top-k, top-p, temp
+    // (consider dynatemp/xtc samplers if available)
     auto sparams = llama_sampler_chain_default_params();
     llama_sampler *sampler = llama_sampler_chain_init(sparams);
-    llama_sampler_chain_add(sampler, llama_sampler_init_top_k(40));
+    llama_sampler_chain_add(sampler, llama_sampler_init_penalties(64, 1.1f, 0.0f, 0.0f));
+    llama_sampler_chain_add(sampler, llama_sampler_init_top_k(30));
     llama_sampler_chain_add(sampler, llama_sampler_init_top_p(0.9f, 1));
     llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.7f));
     llama_sampler_chain_add(sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
@@ -256,7 +258,8 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerate(JNIEnv *env, jclass, jlong ctxP
         llama_token next;
         if (first) {
             llama_sampler *s_first = llama_sampler_chain_init(sparams);
-            llama_sampler_chain_add(s_first, llama_sampler_init_top_k(40));
+            llama_sampler_chain_add(s_first, llama_sampler_init_penalties(64, 1.1f, 0.0f, 0.0f));
+            llama_sampler_chain_add(s_first, llama_sampler_init_top_k(30));
             llama_sampler_chain_add(s_first, llama_sampler_init_top_p(0.9f, 1));
             llama_sampler_chain_add(s_first, llama_sampler_init_temp(0.2f));
             llama_sampler_chain_add(s_first, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
