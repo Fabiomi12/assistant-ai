@@ -14,4 +14,5 @@ object SettingsKeys {
   val MODEL_URLS = stringSetPreferencesKey("model_urls")
   val SELECTED_MODEL = stringPreferencesKey("selected_model")
   val RAG_ENABLED = booleanPreferencesKey("rag_enabled")
+  val AUTO_SAVE_MEMORIES = booleanPreferencesKey("auto_save_memories")
 }

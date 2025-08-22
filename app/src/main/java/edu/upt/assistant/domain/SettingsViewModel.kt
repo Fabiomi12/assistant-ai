@@ -36,6 +36,10 @@ class SettingsViewModel @Inject constructor(
     .map { prefs -> prefs[SettingsKeys.RAG_ENABLED] ?: true }
     .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
+  val autoSaveMemories: StateFlow<Boolean> = dataStore.data
+    .map { prefs -> prefs[SettingsKeys.AUTO_SAVE_MEMORIES] ?: false }
+    .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
   val setupDone: StateFlow<Boolean> = dataStore.data
     .map { prefs -> prefs[SettingsKeys.SETUP_DONE] ?: false }
     .stateIn(viewModelScope, SharingStarted.Eagerly, false)
@@ -74,6 +78,10 @@ class SettingsViewModel @Inject constructor(
 
   fun setRagEnabled(enabled: Boolean) = viewModelScope.launch {
     dataStore.edit { prefs -> prefs[SettingsKeys.RAG_ENABLED] = enabled }
+  }
+
+  fun setAutoSaveMemories(enabled: Boolean) = viewModelScope.launch {
+    dataStore.edit { prefs -> prefs[SettingsKeys.AUTO_SAVE_MEMORIES] = enabled }
   }
 
   fun setActiveModel(url: String) = viewModelScope.launch {

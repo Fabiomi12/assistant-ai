@@ -27,18 +27,27 @@ class MemoryRepository @Inject constructor(
         importance: Int = 3
     ): String {
         Log.d(TAG, "Adding memory: $content")
-        
+
+        val normalized = content.lowercase().replace("\\s+".toRegex(), " ").trim()
+        val existing = memoryDao.getAll().first().firstOrNull {
+            it.content.lowercase().replace("\\s+".toRegex(), " ").trim() == normalized
+        }
+        if (existing != null) {
+            Log.d(TAG, "Duplicate memory detected, skipping insert: ${existing.id}")
+            return existing.id
+        }
+
         val memory = MemoryEntity(
             title = title,
-            content = content.trim(),
+            content = normalized,
             keywords = keywords.joinToString(","),
             tags = tags.joinToString(","),
             importance = importance
         )
-        
+
         memoryDao.upsert(memory)
         Log.d(TAG, "Memory added successfully: ${memory.id}")
-        
+
         return memory.id
     }
 
@@ -60,27 +69,23 @@ class MemoryRepository @Inject constructor(
         val similarities = memories.map { memory ->
             val memoryEmbedding = vectorStore.generateEmbedding(memory.content)
             val similarity = vectorStore.cosineSimilarity(queryEmbedding, memoryEmbedding)
-            
+
             MemoryMatch(
                 memory = memory,
-                similarity = similarity
+                similarity = similarity,
+                embedding = memoryEmbedding
             )
         }
-        
-        // Filter by similarity threshold and sort by combined score
-        val results = similarities
+
+        // Filter by similarity threshold and sort by relevance
+        val candidates = similarities
             .filter { it.similarity >= MIN_SIMILARITY_THRESHOLD }
-            .sortedByDescending { 
-                // Combined score: similarity weighted by importance and recency
-                val recencyScore = (System.currentTimeMillis() - it.memory.updatedAt) / (1000 * 60 * 60 * 24.0) // days ago
-                val recencyWeight = maxOf(0.1, 1.0 - (recencyScore / 30.0)) // decay over 30 days
-                it.similarity * 0.7 + (it.memory.importance / 5.0) * 0.2 + recencyWeight * 0.1
-            }
+            .sortedByDescending { it.similarity }
             .take(topK)
-            .map { it.memory }
-        
-        Log.d(TAG, "Found ${results.size} relevant memories")
-        return results
+
+        val mmrSelected = applyMmr(candidates, k = 2)
+        Log.d(TAG, "Found ${mmrSelected.size} relevant memories after MMR")
+        return mmrSelected.map { it.memory }
     }
 
     fun getAllMemories(): Flow<List<MemoryEntity>> = memoryDao.getAll()
@@ -103,5 +108,30 @@ class MemoryRepository @Inject constructor(
 
 data class MemoryMatch(
     val memory: MemoryEntity,
-    val similarity: Float
+    val similarity: Float,
+    val embedding: FloatArray
 )
+
+private fun applyMmr(candidates: List<MemoryMatch>, k: Int, lambda: Float = 0.7f): List<MemoryMatch> {
+    if (candidates.isEmpty()) return emptyList()
+    val selected = mutableListOf<MemoryMatch>()
+    val remaining = candidates.toMutableList()
+
+    selected.add(remaining.removeAt(0))
+    while (selected.size < k && remaining.isNotEmpty()) {
+        val next = remaining.maxByOrNull { cand ->
+            val relevance = cand.similarity
+            val diversity = selected.maxOf { sel ->
+                // cosine similarity between embeddings
+                val sim = sel.embedding.zip(cand.embedding) { a, b -> a * b }.sum()
+                val normSel = kotlin.math.sqrt(sel.embedding.map { it * it }.sum())
+                val normCand = kotlin.math.sqrt(cand.embedding.map { it * it }.sum())
+                if (normSel > 0 && normCand > 0) sim / (normSel * normCand) else 0f
+            }
+            lambda * relevance - (1 - lambda) * diversity
+        } ?: break
+        remaining.remove(next)
+        selected.add(next)
+    }
+    return selected
+}
