@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,6 +28,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -57,7 +59,10 @@ fun ChatScreen(
     isStreaming: Boolean,
     onSend: (String) -> Unit,
     initialMessage: String? = null,
-    onSaveToMemory: ((String) -> Unit)? = null
+    onSaveToMemory: ((String) -> Unit)? = null,
+    memorySuggestion: String? = null,
+    onMemorySuggestionSave: ((String) -> Unit)? = null,
+    onMemorySuggestionDismiss: (() -> Unit)? = null
 ) {
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -132,6 +137,25 @@ fun ChatScreen(
                     }
                 }
             }
+        }
+
+        // Memory suggestion chip
+        if (memorySuggestion != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SuggestionChip(
+                    onClick = { onMemorySuggestionSave?.invoke(memorySuggestion) },
+                    label = { Text("Save") }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                TextButton(onClick = { onMemorySuggestionDismiss?.invoke() }) {
+                    Text("Dismiss")
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
         }
 
         // Input row

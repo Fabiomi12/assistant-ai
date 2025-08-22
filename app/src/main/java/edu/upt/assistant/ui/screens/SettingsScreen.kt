@@ -60,9 +60,11 @@ fun SettingsScreen(
   username: String,
   notificationsEnabled: Boolean,
   ragEnabled: Boolean,
+  autoSaveMemories: Boolean,
   onUserNameChange: (String) -> Unit,
   onNotificationsToggle: (Boolean) -> Unit,
   onRagToggle: (Boolean) -> Unit,
+  onAutoSaveMemoriesToggle: (Boolean) -> Unit,
   onBack: () -> Unit,
   modelManagementState: ModelManagementState,
   onActiveModelChange: (String) -> Unit,
@@ -157,6 +159,21 @@ fun SettingsScreen(
               )
             }
             Switch(checked = ragEnabled, onCheckedChange = onRagToggle)
+          }
+
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Column(modifier = Modifier.weight(1f)) {
+              Text("Auto-save personal facts")
+              Text(
+                text = "Detect statements like \"My X is Y\"",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+              )
+            }
+            Switch(checked = autoSaveMemories, onCheckedChange = onAutoSaveMemoriesToggle)
           }
         }
       }

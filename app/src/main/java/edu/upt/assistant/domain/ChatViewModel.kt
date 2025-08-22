@@ -194,30 +194,12 @@ class ChatViewModel @Inject constructor(
     }
 
     // Memory-related methods
+    private val factPattern = Regex("^\\s*my\\s+.+\\s+is\\s+.+", RegexOption.IGNORE_CASE)
+
     private fun checkForMemorySuggestion(text: String) {
-        val lowerText = text.lowercase()
-        
-        // Check for personal statements that might be worth saving as memory
-        val personalPatterns = listOf(
-            "my hobbies?\\s+(?:are?|include)",
-            "i (?:like|enjoy|love|prefer)",
-            "my favorite",
-            "i usually",
-            "i'm (?:into|interested in)",
-            "i live in",
-            "my name is",
-            "i study",
-            "i work",
-            "i'm a"
-        )
-        
-        val hasPersonalStatement = personalPatterns.any { pattern ->
-            Regex(pattern).containsMatchIn(lowerText)
-        }
-        
-        if (hasPersonalStatement && text.length > 10) {
+        if (factPattern.containsMatchIn(text)) {
             _memorySuggestion.value = text
-            Log.d("ChatViewModel", "Personal statement detected, suggesting memory save: $text")
+            Log.d("ChatViewModel", "Fact detected, suggesting memory save: $text")
         }
     }
     
