@@ -31,8 +31,7 @@ object PromptTemplateFactory {
     // New: hybrid system prompt (not “RAG-only”)
     fun getSystemPromptForHybrid(): String = """
 - Be concise
-- Use PERSONAL MEMORY/CONTEXT only for user-specific facts
-- Otherwise answer from your own knowledge
+- The CONTEXT/MEMORY blocks may be partial; ignore any cut-off sentences and rely on your own knowledge when needed.
 """.trimIndent()
 
     // keep your other prompts if you still use them elsewhere
