@@ -3,7 +3,6 @@ package edu.upt.assistant.domain.rag
 import android.os.Process
 import android.util.Log
 import edu.upt.assistant.LlamaNative
-import edu.upt.assistant.TokenCallback
 import edu.upt.assistant.data.local.db.ConversationDao
 import edu.upt.assistant.data.local.db.ConversationEntity
 import edu.upt.assistant.data.local.db.MessageDao
@@ -13,9 +12,9 @@ import edu.upt.assistant.domain.ChatRepositoryImpl
 import edu.upt.assistant.domain.ConversationManager
 import edu.upt.assistant.domain.memory.KeywordExtractor
 import edu.upt.assistant.domain.memory.MemoryRepository
-import edu.upt.assistant.domain.prompts.PromptTemplateFactory
 import edu.upt.assistant.domain.prompts.ConversationMessage
 import edu.upt.assistant.domain.prompts.MessageRole
+import edu.upt.assistant.domain.prompts.PromptTemplateFactory
 import edu.upt.assistant.ui.screens.Conversation
 import edu.upt.assistant.ui.screens.Message
 import kotlinx.coroutines.Dispatchers
@@ -91,7 +90,6 @@ class RagChatRepository @Inject constructor(
     override suspend fun createConversation(conversation: Conversation) = baseRepository.createConversation(conversation)
     override suspend fun deleteConversation(conversationId: String) = baseRepository.deleteConversation(conversationId)
     override fun isModelReady(): Boolean = baseRepository.isModelReady()
-    fun getDownloadManager() = baseRepository.getDownloadManager()
 
     override fun sendMessage(conversationId: String, text: String): Flow<String> = channelFlow {
         Log.d(TAG, "RAG sendMessage called with: $text")
@@ -102,7 +100,7 @@ class RagChatRepository @Inject constructor(
         }
 
         try {
-            // 1) persist user message
+            // persist user message
             val now = System.currentTimeMillis()
             msgDao.insert(
                 MessageEntity(
@@ -114,7 +112,7 @@ class RagChatRepository @Inject constructor(
             )
             convDao.upsert(ConversationEntity(conversationId, conversationId, text, now))
 
-            // 2) fetch memory + optional doc ctx in parallel-ish sequence (fast)
+            // fetch memory + optional doc ctx in parallel-ish sequence (fast)
             Log.d(TAG, "TIMING: Starting memory/doc retrieval at ${System.currentTimeMillis()}")
             val memoryHits = try {
                 memoryRepository.search(text, topK = 3)
@@ -127,7 +125,7 @@ class RagChatRepository @Inject constructor(
             Log.d(TAG, "TIMING: Memory/doc retrieval completed at ${System.currentTimeMillis()}")
             Log.d(TAG, "Memory hits: ${memoryHits.size}, Doc ctx: ${if (docCtx.isNotEmpty()) "yes" else "no"}")
 
-            // 3) refresh prompt template & system prompt (model may have changed)
+            // refresh prompt template & system prompt (model may have changed)
             updateTemplateFromModel()
 
             // Preserve a tiny bit of history (last two turns), but rebuild manager so it reflects the new template/system
@@ -153,7 +151,7 @@ class RagChatRepository @Inject constructor(
             }
             managers[conversationId] = manager
 
-            // 4) build current message (PERSONAL MEMORY + optional CONTEXT + question)
+            // build current message (PERSONAL MEMORY + optional CONTEXT + question)
             val currentMessage = buildString {
                 if (memoryHits.isNotEmpty()) {
                     appendLine("PERSONAL MEMORY")
@@ -171,7 +169,7 @@ class RagChatRepository @Inject constructor(
 
             // 5) build final prompt (system + tiny history + current turn)
             val tPromptStart = System.currentTimeMillis()
-            val prompt = manager.buildPromptWithHistory(prevHistory, currentMessage)
+            val prompt = clampContext(manager.buildPromptWithHistory(prevHistory, currentMessage), guessMaxTokens(text))
             val tPromptEnd = System.currentTimeMillis()
             val promptTokens = prompt.length / 4 // rough
             Log.d(TAG, "PERFORMANCE: Prompt build ${tPromptEnd - tPromptStart}ms, ~${promptTokens} tok")
@@ -190,16 +188,21 @@ class RagChatRepository @Inject constructor(
                     LlamaNative.llamaGenerateStream(
                         baseRepository.getLlamaContextPublic(),
                         prompt,
-                        generationTokensFor(text)
+                        guessMaxTokens(text)
                     ) // small for snappy first token
                     { token ->
                         if (firstTokenTime == null) {
                             firstTokenTime = System.currentTimeMillis()
                             Log.d(
                                 TAG,
-                                "🚀 PERFORMANCE: First token after ${firstTokenTime!! - llamaStart}ms (prefill time)"
+                                "PERFORMANCE: First token after ${firstTokenTime - llamaStart}ms (prefill time)"
                             )
                         }
+                        if (token.contains("<end_of_turn>", ignoreCase = false)) {
+                            // stop reading further
+                            return@llamaGenerateStream
+                        }
+
                         val normalized = baseRepository.normalizeTokenPublic(token)
                         val out = if (builder.isEmpty()) normalized.trimStart() else normalized
                         if (trySend(out).isSuccess) builder.append(out)
@@ -259,10 +262,6 @@ class RagChatRepository @Inject constructor(
     suspend fun addDocument(title: String, content: String, contentType: String = "text/plain"): String =
         documentRepository.addDocument(title, content, contentType)
 
-    suspend fun deleteDocument(documentId: String) = documentRepository.deleteDocument(documentId)
-    fun getAllDocuments(): Flow<List<RagDocument>> = documentRepository.getAllDocuments()
-    suspend fun getDocumentCount(): Int = documentRepository.getDocumentCount()
-
     suspend fun addMemory(
         content: String,
         title: String? = null,
@@ -274,7 +273,6 @@ class RagChatRepository @Inject constructor(
     fun getAllMemories(): Flow<List<edu.upt.assistant.data.local.db.MemoryEntity>> =
         memoryRepository.getAllMemories()
 
-    suspend fun getMemoryCount(): Int = memoryRepository.getMemoryCount()
     suspend fun deleteMemory(id: String) = memoryRepository.deleteMemory(id)
 
     suspend fun addMemoryFromMessage(messageText: String, importance: Int = 3): String {
@@ -320,19 +318,25 @@ class RagChatRepository @Inject constructor(
     }
 
     // --- add this helper inside RagChatRepository ---
-    private fun generationTokensFor(userText: String): Int {
-        val t = userText.lowercase()
+    private fun guessMaxTokens(userText: String): Int {
+        val m = Regex("""(\d+)\s*-\s*(\d+)\s*sentences""", RegexOption.IGNORE_CASE).find(userText)
+        val single = Regex("""(\d+)\s*sentences?""", RegexOption.IGNORE_CASE).find(userText)
+        return when {
+            m != null -> {
+                val (a,b) = m.destructured
+                ((a.toInt() + b.toInt())/2 * 20).coerceIn(48, 192)
+            }
+            single != null -> {
+                val n = single.groupValues[1].toInt()
+                (n * 20).coerceIn(48, 192)
+            }
+            else -> 96
+        }
+    }
 
-        // If user asked for N sentences, give ~28 tok/sentence
-        val m = Regex("""(\d+)\s*sentenc""").find(t)
-        val nSent = m?.groupValues?.get(1)?.toIntOrNull()
-        if (nSent != null) return (nSent * 28).coerceIn(96, 512)
-
-        // Paragraphs usually need 150–220 tokens
-        if ("paragraph" in t) return 200
-
-        // Default short answers
-        return 64
+    private fun clampContext(s: String, maxTok: Int = 120): String {
+        val maxChars = maxTok * 4
+        return if (s.length > maxChars) s.take(maxChars) + "...\n[Context truncated]\n---\n" else s
     }
 
 }

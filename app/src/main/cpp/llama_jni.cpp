@@ -380,8 +380,21 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(JNIEnv *env, jclass, jlon
     int n_cur = ntok;
     bool logged_first_sample = false;
 
+    bool first = true;
     for (int i = 0; i < maxTokens; ++i) {
-        llama_token next = llama_sampler_sample(sampler, ctx, -1);
+        llama_token next;
+        if (first) {
+            llama_sampler *s_first = llama_sampler_chain_init(sparams);
+            llama_sampler_chain_add(s_first, llama_sampler_init_top_k(40));
+            llama_sampler_chain_add(s_first, llama_sampler_init_top_p(0.9f, 1));
+            llama_sampler_chain_add(s_first, llama_sampler_init_temp(0.2f)); // <-- colder
+            llama_sampler_chain_add(s_first, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+            next = llama_sampler_sample(s_first, ctx, -1);
+            llama_sampler_free(s_first);
+            first = false;
+        } else {
+            next = llama_sampler_sample(sampler, ctx, -1);
+        }
 
         if (!logged_first_sample) {
             const int64_t t_first = ggml_time_us();
