@@ -184,10 +184,10 @@ fun SettingsScreen(
 
           Button(
             onClick = {
-              val file = MetricsLogger.getFile(context)
-              if (!file.exists()) {
+              if (!MetricsLogger.hasMetrics(context)) {
                 Toast.makeText(context, "No metrics recorded yet", Toast.LENGTH_SHORT).show()
               } else {
+                val file = MetricsLogger.getFile(context)
                 val uri = FileProvider.getUriForFile(
                   context,
                   "${context.packageName}.fileprovider",
