@@ -3,7 +3,6 @@ package edu.upt.assistant.ui.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -12,7 +11,6 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
-import edu.upt.assistant.data.local.db.MemoryEntity
 import edu.upt.assistant.domain.ChatViewModel
 import edu.upt.assistant.domain.ModelDownloadManager
 import edu.upt.assistant.domain.SettingsViewModel
@@ -176,10 +174,8 @@ fun AppNavGraph(
 
         // 7) Memory Screen
         composable(MEMORY_ROUTE) {
-            val memoriesFlow = vm.getMemories()
-            val memories by memoriesFlow?.collectAsState(initial = emptyList())
-                ?: remember { mutableStateOf(emptyList()) }
-            
+            val memories by vm.getMemories().collectAsState(initial = emptyList())
+
             MemoryScreen(
                 memories = memories,
                 onAddMemory = { content, title, importance ->
