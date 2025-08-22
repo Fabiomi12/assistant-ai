@@ -82,7 +82,7 @@ fun ChatRoute(
     // Automatically save detected facts when enabled
     LaunchedEffect(memorySuggestion, autoSaveMemories) {
         if (autoSaveMemories && memorySuggestion != null) {
-            vm.saveToMemory(memorySuggestion)
+            vm.saveToMemory(memorySuggestion!!)
             vm.dismissMemorySuggestion()
         }
     }

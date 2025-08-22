@@ -58,7 +58,7 @@ object MetricsLogger {
 
     fun deviceTemperature(context: Context): Float {
         return try {
-            val thermal = context.getSystemService(Context.THERMAL_SERVICE)
+            val thermal = context.getSystemService("thermalservice")
             val tmClass = Class.forName("android.os.ThermalManager")
             val tempClass = Class.forName("android.os.Temperature")
             val typeField = tempClass.getField("TYPE_SKIN")
