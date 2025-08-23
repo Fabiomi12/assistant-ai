@@ -211,7 +211,11 @@ class ChatRepositoryImpl @Inject constructor(
             var firstTokenTime: Long? = null
             var tokenCount = 0
             val promptTokens = prompt.length / 4
-            Log.d("ChatRepository", "PERFORMANCE: Prompt tokens: $promptTokens, n_ctx: 1536, n_batch: $N_BATCH, n_ubatch: $N_UBATCH")
+            val maxTokens = 48
+            Log.d(
+                "ChatRepository",
+                "PERFORMANCE: Prompt tokens: $promptTokens, n_ctx: 1536, n_batch: $N_BATCH, n_ubatch: $N_UBATCH"
+            )
 
             val builder = StringBuilder()
             var generationFailed = false
@@ -221,7 +225,7 @@ class ChatRepositoryImpl @Inject constructor(
                     LlamaNative.llamaGenerateStream(
                         ctx,
                         prompt,
-                        /* maxTokens = */ 48,  // Reduced for faster first token
+                        maxTokens,  // Reduced for faster first token
                         TokenCallback { token ->
                             // Capture first token timing
                             if (firstTokenTime == null) {
@@ -296,6 +300,10 @@ class ChatRepositoryImpl @Inject constructor(
             val prefillTime = (firstTokenTime ?: replyTime) - llamaStartTime
             val decodeTimeMs = replyTime - (firstTokenTime ?: replyTime)
             val decodeSpeed = if (decodeTimeMs > 0) tokenCount / (decodeTimeMs / 1000.0) else 0.0
+            Log.d(
+                "ChatRepository",
+                "PERFORMANCE: Token counts - prompt: $promptTokens, output: $tokenCount"
+            )
             val metrics = GenerationMetrics(
                 timestamp = replyTime,
                 prefillTimeMs = prefillTime,
@@ -306,6 +314,13 @@ class ChatRepositoryImpl @Inject constructor(
                 endTempC = endTemp,
                 promptChars = prompt.length,
                 promptTokens = promptTokens,
+                outputTokens = tokenCount,
+                promptId = conversationId,
+                category = "",
+                ragEnabled = false,
+                memoryEnabled = false,
+                topK = 0,
+                maxTokens = maxTokens,
                 nThreads = threadCount,
                 nBatch = N_BATCH,
                 nUbatch = N_UBATCH,
