@@ -130,6 +130,7 @@ fun AppNavGraph(
             val ragEnabled by settingsVm.ragEnabled.collectAsState()
             val autoSaveMemories by settingsVm.autoSaveMemories.collectAsState()
             val modelManagementState by settingsVm.modelManagementState.collectAsState()
+            val benchmarkRunning by settingsVm.benchmarkRunning.collectAsState()
 
             SettingsScreen(
                 username = username,
@@ -148,7 +149,9 @@ fun AppNavGraph(
                 onStartDownload = { settingsVm.startDownload(it) },
                 onCancelDownload = { settingsVm.cancelDownload(it) },
                 onDeleteModel = { settingsVm.deleteModel(it) },
-                downloadManager = settingsVm.getDownloadManager()
+                downloadManager = settingsVm.getDownloadManager(),
+                isBenchmarkRunning = benchmarkRunning,
+                onRunBenchmark = { settingsVm.runBenchmark() }
             )
         }
 
