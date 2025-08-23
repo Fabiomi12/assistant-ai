@@ -1,0 +1,14 @@
+[
+  {"id":"general_greeting","text":"Hello! What can you do?","category":"general","expected":"Friendly description"},
+  {"id":"general_math","text":"What is 2+2?","category":"general","expected":"4"},
+  {"id":"general_fact","text":"Who wrote '1984'?","category":"general","expected":"George Orwell"},
+  {"id":"general_paraphrase","text":"Paraphrase: The quick brown fox jumps over the lazy dog.","category":"general","expected":"Same idea"},
+  {"id":"memory_store_color","text":"My favorite color is blue.","category":"memory","expected":"Acknowledgement"},
+  {"id":"memory_recall_color","text":"What is my favorite color?","category":"memory","expected":"blue"},
+  {"id":"memory_store_pet","text":"My pet's name is Luna.","category":"memory","expected":"Acknowledgement"},
+  {"id":"memory_recall_pet","text":"What is my pet's name?","category":"memory","expected":"Luna"},
+  {"id":"rag_question_capital","text":"According to the docs, what is the capital of France?","category":"rag","expected":"Paris"},
+  {"id":"rag_summary_energy","text":"Summarize the document about renewable energy.","category":"rag","expected":"Short summary"},
+  {"id":"rag_fact_history","text":"From the knowledge base, who was the first president of the United States?","category":"rag","expected":"George Washington"},
+  {"id":"rag_quote_science","text":"Find a quote about science from the provided documents.","category":"rag","expected":"Relevant quote"}
+]

@@ -20,7 +20,8 @@ data class ModelManagementState(
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
   private val dataStore: DataStore<Preferences>,
-  private val downloadManager: ModelDownloadManager
+  private val downloadManager: ModelDownloadManager,
+  private val benchmarkRunner: BenchmarkRunner
 ) : ViewModel() {
 
   // Basic settings
@@ -67,6 +68,20 @@ class SettingsViewModel @Inject constructor(
   }.stateIn(viewModelScope, SharingStarted.Eagerly, ModelManagementState())
 
   fun getDownloadManager(): ModelDownloadManager = downloadManager
+
+  // Benchmark state
+  private val _benchmarkRunning = MutableStateFlow(false)
+  val benchmarkRunning: StateFlow<Boolean> = _benchmarkRunning.asStateFlow()
+
+  fun runBenchmark() = viewModelScope.launch {
+    if (_benchmarkRunning.value) return@launch
+    _benchmarkRunning.value = true
+    try {
+      benchmarkRunner.run()
+    } finally {
+      _benchmarkRunning.value = false
+    }
+  }
 
   fun setUsername(name: String) = viewModelScope.launch {
     dataStore.edit { prefs -> prefs[SettingsKeys.USERNAME] = name }

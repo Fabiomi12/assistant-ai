@@ -78,13 +78,22 @@ fun SettingsScreen(
   onStartDownload: (String) -> Unit,
   onCancelDownload: (String) -> Unit,
   onDeleteModel: (String) -> Unit,
-  downloadManager: ModelDownloadManager
+  downloadManager: ModelDownloadManager,
+  isBenchmarkRunning: Boolean,
+  onRunBenchmark: () -> Unit
 ) {
   var newModelUrl by remember { mutableStateOf("") }
 
   // Collect live download progress
   val downloadProgress by downloadManager.downloadProgress.collectAsState()
   val context = LocalContext.current
+  var wasBenchmarkRunning by remember { mutableStateOf(false) }
+  LaunchedEffect(isBenchmarkRunning) {
+    if (wasBenchmarkRunning && !isBenchmarkRunning) {
+      Toast.makeText(context, "Benchmark complete", Toast.LENGTH_SHORT).show()
+    }
+    wasBenchmarkRunning = isBenchmarkRunning
+  }
 
   Scaffold(
     topBar = {
@@ -204,6 +213,20 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth()
           ) {
             Text("Export metrics CSV")
+          }
+
+          Button(
+            onClick = onRunBenchmark,
+            enabled = !isBenchmarkRunning,
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            if (isBenchmarkRunning) {
+              CircularProgressIndicator(modifier = Modifier.size(16.dp))
+              Spacer(Modifier.width(8.dp))
+              Text("Running benchmark...")
+            } else {
+              Text("Run benchmark")
+            }
           }
         }
       }
