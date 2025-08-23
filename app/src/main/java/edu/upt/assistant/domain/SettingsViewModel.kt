@@ -42,6 +42,22 @@ class SettingsViewModel @Inject constructor(
     .map { prefs -> prefs[SettingsKeys.AUTO_SAVE_MEMORIES] ?: false }
     .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+  val nThreads: StateFlow<Int> = dataStore.data
+    .map { prefs -> prefs[SettingsKeys.N_THREADS] ?: 6 }
+    .stateIn(viewModelScope, SharingStarted.Eagerly, 6)
+
+  val maxTokens: StateFlow<Int> = dataStore.data
+    .map { prefs -> prefs[SettingsKeys.MAX_TOKENS] ?: 96 }
+    .stateIn(viewModelScope, SharingStarted.Eagerly, 96)
+
+  val temp: StateFlow<Float> = dataStore.data
+    .map { prefs -> prefs[SettingsKeys.TEMP] ?: 0.7f }
+    .stateIn(viewModelScope, SharingStarted.Eagerly, 0.7f)
+
+  val memoryEnabled: StateFlow<Boolean> = dataStore.data
+    .map { prefs -> prefs[SettingsKeys.MEMORY_ENABLED] ?: true }
+    .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
   val setupDone: StateFlow<Boolean> = dataStore.data
     .map { prefs -> prefs[SettingsKeys.SETUP_DONE] ?: false }
     .stateIn(viewModelScope, SharingStarted.Eagerly, false)
@@ -108,6 +124,22 @@ class SettingsViewModel @Inject constructor(
 
   fun setAutoSaveMemories(enabled: Boolean) = viewModelScope.launch {
     dataStore.edit { prefs -> prefs[SettingsKeys.AUTO_SAVE_MEMORIES] = enabled }
+  }
+
+  fun setNThreads(threads: Int) = viewModelScope.launch {
+    dataStore.edit { prefs -> prefs[SettingsKeys.N_THREADS] = threads }
+  }
+
+  fun setMaxTokens(max: Int) = viewModelScope.launch {
+    dataStore.edit { prefs -> prefs[SettingsKeys.MAX_TOKENS] = max }
+  }
+
+  fun setTemp(value: Float) = viewModelScope.launch {
+    dataStore.edit { prefs -> prefs[SettingsKeys.TEMP] = value }
+  }
+
+  fun setMemoryEnabled(enabled: Boolean) = viewModelScope.launch {
+    dataStore.edit { prefs -> prefs[SettingsKeys.MEMORY_ENABLED] = enabled }
   }
 
   fun setActiveModel(url: String) = viewModelScope.launch {

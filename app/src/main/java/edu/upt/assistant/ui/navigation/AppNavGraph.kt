@@ -129,6 +129,10 @@ fun AppNavGraph(
             val notificationsEnabled by settingsVm.notificationsEnabled.collectAsState()
             val ragEnabled by settingsVm.ragEnabled.collectAsState()
             val autoSaveMemories by settingsVm.autoSaveMemories.collectAsState()
+            val nThreads by settingsVm.nThreads.collectAsState()
+            val maxTokens by settingsVm.maxTokens.collectAsState()
+            val temp by settingsVm.temp.collectAsState()
+            val memoryEnabled by settingsVm.memoryEnabled.collectAsState()
             val modelManagementState by settingsVm.modelManagementState.collectAsState()
             val benchmarkRunning by settingsVm.benchmarkRunning.collectAsState()
 
@@ -137,10 +141,18 @@ fun AppNavGraph(
                 notificationsEnabled = notificationsEnabled,
                 ragEnabled = ragEnabled,
                 autoSaveMemories = autoSaveMemories,
+                nThreads = nThreads,
+                maxTokens = maxTokens,
+                temp = temp,
+                memoryEnabled = memoryEnabled,
                 onUserNameChange = { settingsVm.setUsername(it) },
                 onNotificationsToggle = { settingsVm.setNotificationsEnabled(it) },
                 onRagToggle = { settingsVm.setRagEnabled(it) },
                 onAutoSaveMemoriesToggle = { settingsVm.setAutoSaveMemories(it) },
+                onNThreadsChange = { settingsVm.setNThreads(it) },
+                onMaxTokensChange = { settingsVm.setMaxTokens(it) },
+                onTempChange = { settingsVm.setTemp(it) },
+                onMemoryEnabledToggle = { settingsVm.setMemoryEnabled(it) },
                 onBack = { navController.popBackStack() },
                 modelManagementState = modelManagementState,
                 onActiveModelChange = { settingsVm.setActiveModel(it) },
