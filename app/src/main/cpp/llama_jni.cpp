@@ -359,10 +359,11 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(JNIEnv *env, jclass, jlon
 
     const int64_t t_prefill_done = ggml_time_us();
 
-    // Java callback
+    // Java callbacks
     jclass cbCls = env->GetObjectClass(callback);
     jmethodID onToken = env->GetMethodID(cbCls, "onToken", "(Ljava/lang/String;)V");
-    if (!onToken) { LOGE("Failed to find onToken"); llama_batch_free(batch); return; }
+    jmethodID onTimings = env->GetMethodID(cbCls, "onTimings", "(JJ)V");
+    if (!onToken || !onTimings) { LOGE("Failed to find callback methods"); llama_batch_free(batch); return; }
 
     // Sampler
     auto sparams = llama_sampler_chain_default_params();
@@ -414,9 +415,10 @@ Java_edu_upt_assistant_LlamaNative_llamaGenerateStream(JNIEnv *env, jclass, jlon
 
         if (!logged_first_sample) {
             const int64_t t_first = ggml_time_us();
-            LOGI("TIMINGS us: prefill=%lld, first_sample_delay=%lld",
-                 (long long)(t_prefill_done - t0),
-                 (long long)(t_first - t_prefill_done));
+            const jlong prefill_ms = (t_prefill_done - t0) / 1000;
+            const jlong first_sample_ms = (t_first - t_prefill_done) / 1000;
+            env->CallVoidMethod(callback, onTimings, prefill_ms, first_sample_ms);
+            if (env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Java exception in timings callback"); break; }
             logged_first_sample = true;
         }
 

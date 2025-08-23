@@ -9,13 +9,17 @@ import java.io.File
 data class GenerationMetrics(
     val timestamp: Long,
     val prefillTimeMs: Long,
-    val firstTokenDelayMs: Long,
+    val firstSampleDelayMs: Long,
+    val firstTokenTimeMs: Long,
+    val decodeTimeMs: Long,
     val decodeSpeed: Double,
     val batteryDelta: Float,
     val startTempC: Float,
     val endTempC: Float,
     val promptChars: Int,
     val promptTokens: Int,
+    val historyTokens: Int,
+    val retrievedCtxTokens: Int,
     val outputTokens: Int,
     val promptId: String,
     val category: String,
@@ -31,13 +35,17 @@ data class GenerationMetrics(
     fun toCsvRow(): String = listOf(
         timestamp,
         prefillTimeMs,
-        firstTokenDelayMs,
+        firstSampleDelayMs,
+        firstTokenTimeMs,
+        decodeTimeMs,
         decodeSpeed,
         batteryDelta,
         startTempC,
         endTempC,
         promptChars,
         promptTokens,
+        historyTokens,
+        retrievedCtxTokens,
         outputTokens,
         promptId,
         category,
@@ -55,7 +63,7 @@ data class GenerationMetrics(
 object MetricsLogger {
     private const val FILE_NAME = "generation_metrics.csv"
     private const val HEADER =
-        "timestamp,prefill_ms,first_token_ms,decode_speed,battery_delta,temp_start,temp_end,prompt_chars,prompt_tokens,output_tokens,prompt_id,category,rag_enabled,memory_enabled,top_k,max_tokens,n_threads,n_batch,n_ubatch,model\n"
+        "timestamp,prefill_ms,first_sample_ms,first_token_ms,decode_ms,decode_speed,battery_delta,temp_start,temp_end,prompt_chars,prompt_tokens,history_tokens,retrieved_ctx_tokens,output_tokens,prompt_id,category,rag_enabled,memory_enabled,top_k,max_tokens,n_threads,n_batch,n_ubatch,model\n"
     private const val HEADER_LENGTH = HEADER.length
 
     fun getFile(context: Context): File = File(context.applicationContext.filesDir, FILE_NAME)

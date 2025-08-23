@@ -23,4 +23,6 @@ object SettingsKeys {
   val TEMP           = floatPreferencesKey("temp")             // default 0.7f
   val MEMORY_ENABLED = booleanPreferencesKey("memory_enabled") // default true
 
+  fun nThreadsForModel(url: String) = intPreferencesKey("n_threads_${url.hashCode()}")
+
 }

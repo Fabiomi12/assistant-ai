@@ -149,6 +149,7 @@ fun AppNavGraph(
                 onStartDownload = { settingsVm.startDownload(it) },
                 onCancelDownload = { settingsVm.cancelDownload(it) },
                 onDeleteModel = { settingsVm.deleteModel(it) },
+                onThreadOverrideChange = { url, threads -> settingsVm.setModelThreadOverride(url, threads) },
                 downloadManager = settingsVm.getDownloadManager(),
                 isBenchmarkRunning = benchmarkRunning,
                 onRunBenchmark = { settingsVm.runBenchmark() }

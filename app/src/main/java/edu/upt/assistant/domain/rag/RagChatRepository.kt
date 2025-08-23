@@ -5,6 +5,7 @@ import android.os.Process
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import edu.upt.assistant.LlamaNative
+import edu.upt.assistant.StreamCallback
 import edu.upt.assistant.data.local.db.ConversationDao
 import edu.upt.assistant.data.local.db.ConversationEntity
 import edu.upt.assistant.data.local.db.MessageDao
@@ -133,7 +134,9 @@ class RagChatRepository @Inject constructor(
             val ragEnabled   = prefs[SettingsKeys.RAG_ENABLED]    ?: true
             val memoryEnabled= prefs[SettingsKeys.MEMORY_ENABLED] ?: true
             val maxTokensCfg = prefs[SettingsKeys.MAX_TOKENS]     ?: guessMaxTokens(text)
-            val nThreadsCfg  = prefs[SettingsKeys.N_THREADS]
+            val modelUrlPref = runBlocking { baseRepository.getModelUrl() }
+            val nThreadsCfg  = prefs[SettingsKeys.nThreadsForModel(modelUrlPref)]
+                ?: prefs[SettingsKeys.N_THREADS]
                 ?: minOf(8, maxOf(6, Runtime.getRuntime().availableProcessors() / 2))
 
             // persist user message
@@ -179,6 +182,8 @@ class RagChatRepository @Inject constructor(
                     content = msg.content
                 )
             }
+            val historyTokens = prevHistory.sumOf { it.content.length / 4 }
+            val retrievedCtxTokens = if (docCtx.isNotBlank()) docCtx.length / 4 else 0
 
             val manager = ConversationManager(currentSystemPrompt, promptTemplate = currentTemplate)
             prevHistory.forEach {
@@ -217,7 +222,7 @@ class RagChatRepository @Inject constructor(
             val prompt = manager.buildPromptWithHistory(prevHistory, currentMessage)
             val tPromptEnd = System.currentTimeMillis()
             val promptTokens = prompt.length / 4
-            Log.d(TAG, "PERFORMANCE: Prompt build ${tPromptEnd - tPromptStart}ms, ~${promptTokens} tok")
+            Log.d(TAG, "PERFORMANCE: Prompt build ${tPromptEnd - tPromptStart}ms, ~${promptTokens} tok (history ${historyTokens} ctx ${retrievedCtxTokens})")
             Log.d(TAG, "===== FULL PROMPT SENT TO MODEL =====")
             Log.d(TAG, prompt)
             Log.d(TAG, "===== END OF PROMPT =====")
@@ -229,6 +234,8 @@ class RagChatRepository @Inject constructor(
 
             val llamaStart = System.currentTimeMillis()
             var firstTokenTime: Long? = null
+            var nativePrefill: Long = 0
+            var nativeFirstSample: Long = 0
             var pieceCount = 0 // streamed pieces (approx)
             val builder = StringBuilder()
 
@@ -238,22 +245,28 @@ class RagChatRepository @Inject constructor(
                     LlamaNative.llamaGenerateStream(
                         baseRepository.getLlamaContextPublic(),
                         prompt,
-                        maxTokensCfg
-                    ) { tokenPiece ->
-                        if (firstTokenTime == null) {
-                            firstTokenTime = System.currentTimeMillis()
-                            Log.d(TAG, "PERFORMANCE: First token after ${firstTokenTime!! - llamaStart}ms (prefill)")
-                        }
-                        // Be defensive: special markers may arrive inside a piece
-                        if (tokenPiece.contains("<end_of_turn>") || tokenPiece.contains("<|im_end|>")) {
-                            return@llamaGenerateStream
-                        }
-                        pieceCount++
+                        maxTokensCfg,
+                        object : StreamCallback {
+                            override fun onTimings(prefillMs: Long, firstSampleDelayMs: Long) {
+                                nativePrefill = prefillMs
+                                nativeFirstSample = firstSampleDelayMs
+                            }
+                            override fun onToken(tokenPiece: String) {
+                                if (firstTokenTime == null) {
+                                    firstTokenTime = System.currentTimeMillis()
+                                    Log.d(TAG, "PERFORMANCE: First token after ${firstTokenTime!! - llamaStart}ms")
+                                }
+                                if (tokenPiece.contains("<end_of_turn>") || tokenPiece.contains("<|im_end|>")) {
+                                    return
+                                }
+                                pieceCount++
 
-                        val normalized = baseRepository.normalizeTokenPublic(tokenPiece)
-                        val out = if (builder.isEmpty()) normalized.trimStart() else normalized
-                        if (trySend(out).isSuccess) builder.append(out)
-                    }
+                                val normalized = baseRepository.normalizeTokenPublic(tokenPiece)
+                                val out = if (builder.isEmpty()) normalized.trimStart() else normalized
+                                if (trySend(out).isSuccess) builder.append(out)
+                            }
+                        }
+                    )
                 } catch (e: Exception) {
                     Log.e(TAG, "Error during streaming", e)
                     trySend("Error: Failed to generate response")
@@ -269,8 +282,9 @@ class RagChatRepository @Inject constructor(
             val endBattery = MetricsLogger.batteryLevel(appContext)
             val endTempC   = MetricsLogger.deviceTemperature(appContext)
 
-            val prefillMs       = (firstTokenTime ?: replyTime) - llamaStart
-            val firstTokenDelay = prefillMs
+            val prefillMs       = if (nativePrefill > 0) nativePrefill else (firstTokenTime ?: replyTime) - llamaStart
+            val firstSample     = nativeFirstSample
+            val firstTokenTotal = prefillMs + firstSample
             val decodeMs        = replyTime - (firstTokenTime ?: replyTime)
 
             val outputTokApprox = estTokens(builder.toString()).coerceAtLeast(pieceCount)
@@ -282,13 +296,17 @@ class RagChatRepository @Inject constructor(
                     GenerationMetrics(
                         timestamp         = replyTime,
                         prefillTimeMs     = prefillMs,
-                        firstTokenDelayMs = firstTokenDelay,
+                        firstSampleDelayMs = firstSample,
+                        firstTokenTimeMs  = firstTokenTotal,
+                        decodeTimeMs      = decodeMs,
                         decodeSpeed       = decodeSpeed,
                         batteryDelta      = startBattery - endBattery,
                         startTempC        = startTempC,
                         endTempC          = endTempC,
                         promptChars       = prompt.length,
                         promptTokens      = promptTokens,
+                        historyTokens     = historyTokens,
+                        retrievedCtxTokens= retrievedCtxTokens,
                         outputTokens      = outputTokApprox,
                         promptId          = conversationId,
                         category          = "",
