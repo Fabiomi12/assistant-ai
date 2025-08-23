@@ -69,10 +69,18 @@ fun SettingsScreen(
   notificationsEnabled: Boolean,
   ragEnabled: Boolean,
   autoSaveMemories: Boolean,
+  nThreads: Int,
+  maxTokens: Int,
+  temp: Float,
+  memoryEnabled: Boolean,
   onUserNameChange: (String) -> Unit,
   onNotificationsToggle: (Boolean) -> Unit,
   onRagToggle: (Boolean) -> Unit,
   onAutoSaveMemoriesToggle: (Boolean) -> Unit,
+  onNThreadsChange: (Int) -> Unit,
+  onMaxTokensChange: (Int) -> Unit,
+  onTempChange: (Float) -> Unit,
+  onMemoryEnabledToggle: (Boolean) -> Unit,
   onBack: () -> Unit,
   modelManagementState: ModelManagementState,
   onActiveModelChange: (String) -> Unit,
@@ -193,6 +201,71 @@ fun SettingsScreen(
               )
             }
             Switch(checked = autoSaveMemories, onCheckedChange = onAutoSaveMemoriesToggle)
+          }
+
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Text("Enable memory", modifier = Modifier.weight(1f))
+            Switch(checked = memoryEnabled, onCheckedChange = onMemoryEnabledToggle)
+          }
+
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Text("Threads", modifier = Modifier.weight(1f))
+            var localThreads by rememberSaveable { mutableStateOf(nThreads.toString()) }
+            LaunchedEffect(nThreads) { localThreads = nThreads.toString() }
+            OutlinedTextField(
+              value = localThreads,
+              onValueChange = {
+                val filtered = it.filter { ch -> ch.isDigit() }
+                localThreads = filtered
+                filtered.toIntOrNull()?.let(onNThreadsChange)
+              },
+              modifier = Modifier.width(100.dp),
+              singleLine = true
+            )
+          }
+
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Text("Max tokens", modifier = Modifier.weight(1f))
+            var localMaxTokens by rememberSaveable { mutableStateOf(maxTokens.toString()) }
+            LaunchedEffect(maxTokens) { localMaxTokens = maxTokens.toString() }
+            OutlinedTextField(
+              value = localMaxTokens,
+              onValueChange = {
+                val filtered = it.filter { ch -> ch.isDigit() }
+                localMaxTokens = filtered
+                filtered.toIntOrNull()?.let(onMaxTokensChange)
+              },
+              modifier = Modifier.width(100.dp),
+              singleLine = true
+            )
+          }
+
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Text("Temperature", modifier = Modifier.weight(1f))
+            var localTemp by rememberSaveable { mutableStateOf(temp.toString()) }
+            LaunchedEffect(temp) { localTemp = temp.toString() }
+            OutlinedTextField(
+              value = localTemp,
+              onValueChange = {
+                val filtered = it.filter { ch -> ch.isDigit() || ch == '.' }
+                localTemp = filtered
+                filtered.toFloatOrNull()?.let(onTempChange)
+              },
+              modifier = Modifier.width(100.dp),
+              singleLine = true
+            )
           }
 
           Button(
