@@ -141,6 +141,7 @@ class RagChatRepository @Inject constructor(
 
             // fetch memory + optional doc ctx in parallel-ish sequence (fast)
             Log.d(TAG, "TIMING: Starting memory/doc retrieval at ${System.currentTimeMillis()}")
+            val docTopK = 4
             val memoryHits = try {
                 memoryRepository.search(text, topK = 3)
             } catch (e: Exception) {
@@ -228,6 +229,7 @@ class RagChatRepository @Inject constructor(
             var firstTokenTime: Long? = null
             var tokenCount = 0
             val builder = StringBuilder()
+            val maxTokens = guessMaxTokens(text)
 
             withContext(Dispatchers.IO) {
                 try {
@@ -235,7 +237,7 @@ class RagChatRepository @Inject constructor(
                     LlamaNative.llamaGenerateStream(
                         baseRepository.getLlamaContextPublic(),
                         prompt,
-                        guessMaxTokens(text)
+                        maxTokens
                     ) // small for snappy first token
                     { token ->
                         if (firstTokenTime == null) {
@@ -276,6 +278,10 @@ class RagChatRepository @Inject constructor(
             // approximate tokens/sec (either from tokenCount or chars/4)
             val outTokApprox    = maxOf(tokenCount, estTokens(builder.toString()))
             val decodeSpeed     = if (decodeMs > 0) outTokApprox / (decodeMs / 1000.0) else 0.0
+            Log.d(
+                TAG,
+                "PERFORMANCE: Token counts - prompt: $promptTokens, output: $outTokApprox"
+            )
 
             try {
                 MetricsLogger.log(
@@ -290,6 +296,13 @@ class RagChatRepository @Inject constructor(
                         endTempC          = endTempC,
                         promptChars       = prompt.length,
                         promptTokens      = promptTokens,
+                        outputTokens      = outTokApprox,
+                        promptId          = conversationId,
+                        category          = "",
+                        ragEnabled        = true,
+                        memoryEnabled     = memoryHits.isNotEmpty(),
+                        topK              = docTopK,
+                        maxTokens         = maxTokens,
                         nThreads          = nThreads,
                         nBatch            = N_BATCH,
                         nUbatch           = N_UBATCH,
