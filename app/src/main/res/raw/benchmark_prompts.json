@@ -1,14 +1,24 @@
 [
-  {"id":"general_greeting","text":"Hello! What can you do?","category":"general","expected":"Friendly description"},
-  {"id":"general_math","text":"What is 2+2?","category":"general","expected":"4"},
-  {"id":"general_fact","text":"Who wrote '1984'?","category":"general","expected":"George Orwell"},
-  {"id":"general_paraphrase","text":"Paraphrase: The quick brown fox jumps over the lazy dog.","category":"general","expected":"Same idea"},
-  {"id":"memory_store_color","text":"My favorite color is blue.","category":"memory","expected":"Acknowledgement"},
-  {"id":"memory_recall_color","text":"What is my favorite color?","category":"memory","expected":"blue"},
-  {"id":"memory_store_pet","text":"My pet's name is Luna.","category":"memory","expected":"Acknowledgement"},
-  {"id":"memory_recall_pet","text":"What is my pet's name?","category":"memory","expected":"Luna"},
-  {"id":"rag_question_capital","text":"According to the docs, what is the capital of France?","category":"rag","expected":"Paris"},
-  {"id":"rag_summary_energy","text":"Summarize the document about renewable energy.","category":"rag","expected":"Short summary"},
-  {"id":"rag_fact_history","text":"From the knowledge base, who was the first president of the United States?","category":"rag","expected":"George Washington"},
-  {"id":"rag_quote_science","text":"Find a quote about science from the provided documents.","category":"rag","expected":"Relevant quote"}
+  {"id":"general_greeting","category":"general","text":"In one sentence, list 3 things you can do.","expected_regex":"\\b(answer|explain|summarize|translate|paraphrase|reason|math)","temp":0.5,"max_tokens":64},
+
+  {"id":"general_math","category":"general","text":"Answer only with the result: 2+2=","expected_regex":"^4\\b","temp":0.0,"max_tokens":16},
+
+  {"id":"general_fact","category":"general","text":"Answer with only the name: Who wrote the novel '1984'?","expected_regex":"^George\\s+Orwell$","temp":0.1,"max_tokens":16},
+
+  {"id":"general_paraphrase","category":"general","text":"Paraphrase in exactly 9–12 words: \"The quick brown fox jumps over the lazy dog.\"","expected_regex":"^(?:\\S+\\s+){8,11}\\S+$","temp":0.6,"max_tokens":32},
+
+  {"id":"memory_color_store","category":"memory_setup","insert_memory":"My favorite color is blue."},
+  {"id":"memory_color_recall","category":"memory","text":"Answer with only the color I like most.","expected_regex":"^blue$","temp":0.1,"max_tokens":8},
+
+  {"id":"memory_pet_store","category":"memory_setup","insert_memory":"My pet's name is Luna."},
+  {"id":"memory_pet_recall","category":"memory","text":"Answer with only the pet's name you know about me.","expected_regex":"^Luna$","temp":0.1,"max_tokens":8},
+
+  {"id":"rag_capital_doc","category":"rag_setup","doc_id":"france_capital","doc_text":"France is a country in Europe. The capital of France is Paris."},
+  {"id":"rag_capital_question","category":"rag","text":"According to the documents, answer with only the capital of France.","expected_regex":"^Paris$","temp":0.1,"max_tokens":8},
+
+  {"id":"rag_history_doc","category":"rag_setup","doc_id":"us_first_president","doc_text":"In 1789, George Washington became the first president of the United States."},
+  {"id":"rag_history_question","category":"rag","text":"From the knowledge base, who was the first president of the United States? Answer with only the name.","expected_regex":"^George\\s+Washington$","temp":0.1,"max_tokens":8},
+
+  {"id":"rag_quote_doc","category":"rag_setup","doc_id":"science_quote","doc_text":"Albert Einstein once said, \"Science is a wonderful thing if one does not have to earn one's living at it.\""},
+  {"id":"rag_quote_question","category":"rag","text":"Find a quote about science from the documents. Return the quote text only.","expected_regex":"Science is a wonderful thing","temp":0.3,"max_tokens":48}
 ]

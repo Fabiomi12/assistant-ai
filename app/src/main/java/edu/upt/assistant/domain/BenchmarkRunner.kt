@@ -38,6 +38,7 @@ class BenchmarkRunner @Inject constructor(
 ) {
     suspend fun run() {
         val prompts = loadPrompts()
+
         val modelUrls = dataStore.data.map { prefs ->
             prefs[SettingsKeys.MODEL_URLS] ?: setOf(ModelDownloadManager.DEFAULT_MODEL_URL)
         }.first()
@@ -49,16 +50,32 @@ class BenchmarkRunner @Inject constructor(
         val tokenOptions = listOf(64, 128)
 
         for (model in models) {
+            // Select model (repo will destroy/recreate context on change)
             dataStore.edit { it[SettingsKeys.SELECTED_MODEL] = model.url }
+
             for (threads in threadOptions) {
+                // Make repo honor threads (ensure ChatRepositoryImpl reads this on init)
+                dataStore.edit { it[SettingsKeys.N_THREADS] = threads }
+
                 for (rag in ragOptions) {
                     dataStore.edit { it[SettingsKeys.RAG_ENABLED] = rag }
+
                     for (memory in memoryOptions) {
-                        dataStore.edit { it[SettingsKeys.AUTO_SAVE_MEMORIES] = memory }
+                        // Set BOTH keys for compatibility
+                        dataStore.edit {
+                            it[SettingsKeys.MEMORY_ENABLED] = memory     // used by RagChatRepository
+                            it[SettingsKeys.AUTO_SAVE_MEMORIES] = memory  // used by Settings UI
+                        }
+
                         for (maxTokens in tokenOptions) {
+                            dataStore.edit { it[SettingsKeys.MAX_TOKENS] = maxTokens }
+
                             for (prompt in prompts) {
-                                val conversationId = "bench-${prompt.id}-${model.fileName}-t${threads}-rag${rag}-mem${memory}-tok${maxTokens}"
-                                val timestamp = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date())
+                                val conversationId =
+                                    "bench-${prompt.id}-${model.fileName}-t${threads}-rag${rag}-mem${memory}-tok${maxTokens}"
+                                val timestamp = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
+                                    .format(Date())
+
                                 chatRepository.createConversation(
                                     Conversation(
                                         id = conversationId,
@@ -67,40 +84,13 @@ class BenchmarkRunner @Inject constructor(
                                         timestamp = timestamp
                                     )
                                 )
-                                val start = System.currentTimeMillis()
-                                var firstToken: Long? = null
+
+                                // Run and stream output; metrics are logged inside RagChatRepository.
                                 val builder = StringBuilder()
-                                chatRepository.sendMessage(conversationId, prompt.text).collect { token ->
-                                    if (firstToken == null) firstToken = System.currentTimeMillis()
-                                    builder.append(token)
-                                }
-                                val end = System.currentTimeMillis()
-                                val prefill = (firstToken ?: end) - start
-                                val decode = end - (firstToken ?: end)
-                                val decodeSpeed = if (decode > 0) (builder.length / 4.0) / (decode / 1000.0) else 0.0
-                                val metrics = GenerationMetrics(
-                                    timestamp = end,
-                                    prefillTimeMs = prefill,
-                                    firstTokenDelayMs = prefill,
-                                    decodeSpeed = decodeSpeed,
-                                    batteryDelta = 0f,
-                                    startTempC = 0f,
-                                    endTempC = 0f,
-                                    promptChars = prompt.text.length,
-                                    promptTokens = prompt.text.length / 4,
-                                    outputTokens = builder.length / 4,
-                                    promptId = prompt.id,
-                                    category = prompt.category,
-                                    ragEnabled = rag,
-                                    memoryEnabled = memory,
-                                    topK = 0,
-                                    maxTokens = maxTokens,
-                                    nThreads = threads,
-                                    nBatch = 0,
-                                    nUbatch = 0,
-                                    model = model.fileName
-                                )
-                                MetricsLogger.log(context, metrics)
+                                chatRepository
+                                    .sendMessage(conversationId, prompt.text)
+                                    .collect { token -> builder.append(token) }
+
                             }
                         }
                     }
@@ -108,6 +98,7 @@ class BenchmarkRunner @Inject constructor(
             }
         }
     }
+
 
     private fun loadPrompts(): List<BenchmarkPrompt> {
         val stream = context.resources.openRawResource(R.raw.benchmark_prompts)

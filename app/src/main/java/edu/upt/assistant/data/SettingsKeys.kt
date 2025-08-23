@@ -3,6 +3,8 @@ package edu.upt.assistant.data
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.floatPreferencesKey
 
 object SettingsKeys {
   val USERNAME = stringPreferencesKey("user_name")
@@ -15,4 +17,10 @@ object SettingsKeys {
   val SELECTED_MODEL = stringPreferencesKey("selected_model")
   val RAG_ENABLED = booleanPreferencesKey("rag_enabled")
   val AUTO_SAVE_MEMORIES = booleanPreferencesKey("auto_save_memories")
+  // SettingsKeys.kt
+  val N_THREADS      = intPreferencesKey("n_threads")          // default 6..8
+  val MAX_TOKENS     = intPreferencesKey("max_tokens")         // default 96
+  val TEMP           = floatPreferencesKey("temp")             // default 0.7f
+  val MEMORY_ENABLED = booleanPreferencesKey("memory_enabled") // default true
+
 }

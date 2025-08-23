@@ -32,6 +32,11 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+// NEW: DataStore imports
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import kotlinx.coroutines.flow.first
+import edu.upt.assistant.data.SettingsKeys
 
 @Singleton
 class RagChatRepository @Inject constructor(
@@ -40,7 +45,8 @@ class RagChatRepository @Inject constructor(
     private val memoryRepository: MemoryRepository,
     private val msgDao: MessageDao,
     private val convDao: ConversationDao,
-    @ApplicationContext private val appContext: Context
+    @ApplicationContext private val appContext: Context,
+    private val dataStore: DataStore<Preferences>
 ) : ChatRepository {
 
     companion object {
@@ -54,7 +60,6 @@ class RagChatRepository @Inject constructor(
 
         private fun extractQuant(modelUrl: String): String {
             val file = modelUrl.substringAfterLast('/').substringAfterLast('\\')
-            // e.g., gemma-3n-E2B-it-Q4_K_M.gguf -> Q4_K_M
             val q = Regex("-(Q[^-.]+)").find(file)?.groupValues?.getOrNull(1)
             return q ?: file
         }
@@ -64,8 +69,6 @@ class RagChatRepository @Inject constructor(
             val idx = s.lastIndexOfAny(charArrayOf('.', '!', '?', '\n'))
             return if (idx >= 0 && idx < s.length - 1) s.substring(0, idx + 1) else s
         }
-
-
     }
 
     private val managers = mutableMapOf<String, ConversationManager>()
@@ -76,8 +79,6 @@ class RagChatRepository @Inject constructor(
 
     init {
         updateTemplateFromModel()
-
-        // optional: seed a couple memories for demo on first run
         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
             try {
                 addTestMemories()
@@ -127,6 +128,14 @@ class RagChatRepository @Inject constructor(
         }
 
         try {
+            // --- Read runtime config from DataStore (NEW)
+            val prefs = dataStore.data.first()
+            val ragEnabled   = prefs[SettingsKeys.RAG_ENABLED]    ?: true
+            val memoryEnabled= prefs[SettingsKeys.MEMORY_ENABLED] ?: true
+            val maxTokensCfg = prefs[SettingsKeys.MAX_TOKENS]     ?: guessMaxTokens(text)
+            val nThreadsCfg  = prefs[SettingsKeys.N_THREADS]
+                ?: minOf(8, maxOf(6, Runtime.getRuntime().availableProcessors() / 2))
+
             // persist user message
             val now = System.currentTimeMillis()
             msgDao.insert(
@@ -139,15 +148,17 @@ class RagChatRepository @Inject constructor(
             )
             convDao.upsert(ConversationEntity(conversationId, conversationId, text, now))
 
-            // fetch memory + optional doc ctx in parallel-ish sequence (fast)
+            // fetch memory + optional doc ctx
             Log.d(TAG, "TIMING: Starting memory/doc retrieval at ${System.currentTimeMillis()}")
             val docTopK = 4
             val memoryHits = try {
-                memoryRepository.search(text, topK = 3)
+                if (memoryEnabled) memoryRepository.search(text, topK = 3) else emptyList()
             } catch (e: Exception) {
                 Log.e(TAG, "Error retrieving memory", e); emptyList()
             }
-            val docCtx = try { retrieveContext(text) } catch (e: Exception) {
+            val docCtx = try {
+                if (ragEnabled) retrieveContext(text) else ""
+            } catch (e: Exception) {
                 Log.e(TAG, "Error retrieving context", e); ""
             }
             Log.d(TAG, "TIMING: Memory/doc retrieval completed at ${System.currentTimeMillis()}")
@@ -156,8 +167,7 @@ class RagChatRepository @Inject constructor(
             // refresh prompt template & system prompt (model may have changed)
             updateTemplateFromModel()
 
-            // Preserve a tiny bit of history (last two turns), but rebuild manager so it reflects the new template/system
-            // retain at most the last user turn for continuity
+            // Tiny history continuity (last 2 messages)
             val prevHistoryMsgs = managers[conversationId]?.getHistory()?.takeLast(2).orEmpty()
             val prevHistory = prevHistoryMsgs.map { msg ->
                 ConversationMessage(
@@ -171,7 +181,6 @@ class RagChatRepository @Inject constructor(
             }
 
             val manager = ConversationManager(currentSystemPrompt, promptTemplate = currentTemplate)
-            // replay tiny history into the new manager for continuity
             prevHistory.forEach {
                 when (it.role) {
                     MessageRole.USER -> manager.appendUser(it.content)
@@ -180,9 +189,9 @@ class RagChatRepository @Inject constructor(
             }
             managers[conversationId] = manager
 
-            // build current message (PERSONAL MEMORY + optional CONTEXT + question)
+            // Build current message (PERSONAL MEMORY + optional CONTEXT + question)
             val currentMessage = buildString {
-                if (memoryHits.isNotEmpty()) {
+                if (memoryEnabled && memoryHits.isNotEmpty()) {
                     appendLine("PERSONAL MEMORY")
                     var memBudget = MAX_MEM_TOKENS
                     for (m in memoryHits) {
@@ -194,42 +203,34 @@ class RagChatRepository @Inject constructor(
                     }
                     appendLine("---")
                 }
-
-                if (docCtx.isNotBlank()) {
+                if (ragEnabled && docCtx.isNotBlank()) {
                     appendLine("CONTEXT")
-                    appendLine(docCtx)
+                    appendLine(docCtx) // retrieveContext() returns raw text only
                     appendLine("---")
                 }
-
                 appendLine("Question:")
                 append(text.trim())
             }
 
-
-            // 5) build final prompt (system + tiny history + current turn)
+            // Build final prompt
             val tPromptStart = System.currentTimeMillis()
             val prompt = manager.buildPromptWithHistory(prevHistory, currentMessage)
             val tPromptEnd = System.currentTimeMillis()
-            val promptTokens = prompt.length / 4 // rough
+            val promptTokens = prompt.length / 4
             Log.d(TAG, "PERFORMANCE: Prompt build ${tPromptEnd - tPromptStart}ms, ~${promptTokens} tok")
             Log.d(TAG, "===== FULL PROMPT SENT TO MODEL =====")
             Log.d(TAG, prompt)
             Log.d(TAG, "===== END OF PROMPT =====")
 
-            // --- Metrics: capture pre state ---
+            // --- Metrics pre state
             val startBattery = MetricsLogger.batteryLevel(appContext)
             val startTempC   = MetricsLogger.deviceTemperature(appContext)
-            val modelUrl = runBlocking { baseRepository.getModelUrl() }
-
-            val modelQuant = extractQuant(modelUrl)
-
-            val nThreads = minOf(8, maxOf(6, Runtime.getRuntime().availableProcessors() / 2))
+            val modelUrl     = runBlocking { baseRepository.getModelUrl() }
 
             val llamaStart = System.currentTimeMillis()
             var firstTokenTime: Long? = null
-            var tokenCount = 0
+            var pieceCount = 0 // streamed pieces (approx)
             val builder = StringBuilder()
-            val maxTokens = guessMaxTokens(text)
 
             withContext(Dispatchers.IO) {
                 try {
@@ -237,22 +238,19 @@ class RagChatRepository @Inject constructor(
                     LlamaNative.llamaGenerateStream(
                         baseRepository.getLlamaContextPublic(),
                         prompt,
-                        maxTokens
-                    ) // small for snappy first token
-                    { token ->
+                        maxTokensCfg
+                    ) { tokenPiece ->
                         if (firstTokenTime == null) {
                             firstTokenTime = System.currentTimeMillis()
-                            Log.d(
-                                TAG,
-                                "PERFORMANCE: First token after ${firstTokenTime - llamaStart}ms (prefill time)"
-                            )
+                            Log.d(TAG, "PERFORMANCE: First token after ${firstTokenTime!! - llamaStart}ms (prefill)")
                         }
-                        if (token == "<end_of_turn>" || token == "<|im_end|>") {
+                        // Be defensive: special markers may arrive inside a piece
+                        if (tokenPiece.contains("<end_of_turn>") || tokenPiece.contains("<|im_end|>")) {
                             return@llamaGenerateStream
                         }
-                        tokenCount++
+                        pieceCount++
 
-                        val normalized = baseRepository.normalizeTokenPublic(token)
+                        val normalized = baseRepository.normalizeTokenPublic(tokenPiece)
                         val out = if (builder.isEmpty()) normalized.trimStart() else normalized
                         if (trySend(out).isSuccess) builder.append(out)
                     }
@@ -263,11 +261,11 @@ class RagChatRepository @Inject constructor(
             }
 
             val reply = builder.toString().trim()
-            manager.appendUser(text)      // add the original user message
+            manager.appendUser(text)
             manager.appendAssistant(reply)
 
-            // --- Metrics: write a row ---
-            val replyTime = System.currentTimeMillis()
+            // --- Metrics post
+            val replyTime  = System.currentTimeMillis()
             val endBattery = MetricsLogger.batteryLevel(appContext)
             val endTempC   = MetricsLogger.deviceTemperature(appContext)
 
@@ -275,13 +273,8 @@ class RagChatRepository @Inject constructor(
             val firstTokenDelay = prefillMs
             val decodeMs        = replyTime - (firstTokenTime ?: replyTime)
 
-            // approximate tokens/sec (either from tokenCount or chars/4)
-            val outTokApprox    = maxOf(tokenCount, estTokens(builder.toString()))
-            val decodeSpeed     = if (decodeMs > 0) outTokApprox / (decodeMs / 1000.0) else 0.0
-            Log.d(
-                TAG,
-                "PERFORMANCE: Token counts - prompt: $promptTokens, output: $outTokApprox"
-            )
+            val outputTokApprox = estTokens(builder.toString()).coerceAtLeast(pieceCount)
+            val decodeSpeed     = if (decodeMs > 0) outputTokApprox / (decodeMs / 1000.0) else 0.0
 
             try {
                 MetricsLogger.log(
@@ -296,23 +289,24 @@ class RagChatRepository @Inject constructor(
                         endTempC          = endTempC,
                         promptChars       = prompt.length,
                         promptTokens      = promptTokens,
-                        outputTokens      = outTokApprox,
+                        outputTokens      = outputTokApprox,
                         promptId          = conversationId,
                         category          = "",
-                        ragEnabled        = true,
-                        memoryEnabled     = memoryHits.isNotEmpty(),
-                        topK              = docTopK,
-                        maxTokens         = maxTokens,
-                        nThreads          = nThreads,
+                        ragEnabled        = ragEnabled,
+                        memoryEnabled     = memoryEnabled,
+                        topK              = if (ragEnabled) docTopK else 0,
+                        maxTokens         = maxTokensCfg,
+                        nThreads          = nThreadsCfg,
                         nBatch            = N_BATCH,
                         nUbatch           = N_UBATCH,
-                        model         = fileNameFrom(modelUrl)
+                        model             = fileNameFrom(modelUrl)
                     )
                 )
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed to write metrics: ${t.message}")
             }
 
+            // persist assistant reply
             msgDao.insert(
                 MessageEntity(
                     conversationId = conversationId,
@@ -339,10 +333,8 @@ class RagChatRepository @Inject constructor(
                 Log.d(TAG, "No relevant context found for query: $query")
                 return ""
             }
-
             var budget = MAX_CTX_TOKENS
             val sb = StringBuilder()
-
             for (chunk in retrieved) {
                 val text = chunk.text.trim()
                 val tks = estTokens(text)
@@ -357,8 +349,7 @@ class RagChatRepository @Inject constructor(
                     budget -= tks
                 }
             }
-
-            sb.toString().trim() // <-- RAW context, no headers, no '---'
+            sb.toString().trim() // raw context only
         } catch (e: Exception) {
             Log.e(TAG, "Error retrieving context", e)
             ""
@@ -437,8 +428,7 @@ class RagChatRepository @Inject constructor(
                 val n = single.groupValues[1].toInt()
                 (n * 20).coerceIn(64, 256)
             }
-            else -> 96 // default when no explicit length requested
+            else -> 96 // default
         }
     }
-
 }

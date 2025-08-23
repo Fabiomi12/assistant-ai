@@ -79,9 +79,12 @@ class ChatRepositoryImpl @Inject constructor(
 
             val modelPath = modelDownloadManager.getModelPath(url)
             Log.d("ChatRepository", "Model path: $modelPath")
-            // Use optimized thread count (6-8) instead of all processors for better performance
-            val optimalThreads = minOf(8, maxOf(6, Runtime.getRuntime().availableProcessors() / 2))
-            threadCount = optimalThreads
+
+            val prefs = dataStore.data.first()
+            val configured = prefs[SettingsKeys.N_THREADS]
+            val optimal = minOf(8, maxOf(6, Runtime.getRuntime().availableProcessors() / 2))
+            threadCount = configured ?: optimal
+
             modelName = java.io.File(modelPath).name
             val ctx = LlamaNative.llamaCreate(
                 modelPath,
@@ -115,6 +118,12 @@ class ChatRepositoryImpl @Inject constructor(
                     // Clear managers so they get recreated with new template
                     managers.clear()
                 }
+        }
+        scope.launch {
+            dataStore.data
+                .map { it[SettingsKeys.N_THREADS] }
+                .distinctUntilChanged()
+                .collect { destroyLlamaContext() } // rebuild with new threads
         }
     }
 
@@ -217,7 +226,7 @@ class ChatRepositoryImpl @Inject constructor(
             var firstTokenTime: Long? = null
             var tokenCount = 0
             val promptTokens = prompt.length / 4
-            val maxTokens = 48
+            val maxTokens = dataStore.data.first()[SettingsKeys.MAX_TOKENS] ?: 96
             Log.d(
                 "ChatRepository",
                 "PERFORMANCE: Prompt tokens: $promptTokens, n_ctx: 1536, n_batch: $N_BATCH, n_ubatch: $N_UBATCH"

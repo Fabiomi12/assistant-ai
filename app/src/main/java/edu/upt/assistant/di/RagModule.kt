@@ -58,8 +58,9 @@ object RagModule {
         conv: ConversationDao,
         msgDao: MessageDao,
         memoryRepository: MemoryRepository,
-        @ApplicationContext context: Context
-    ): RagChatRepository = RagChatRepository(baseRepository, documentRepository, memoryRepository,msgDao, conv, context)
+        @ApplicationContext context: Context,
+        dataStore: DataStore<Preferences>
+    ): RagChatRepository = RagChatRepository(baseRepository, documentRepository, memoryRepository,msgDao, conv, context, dataStore)
 
     @Provides
     @Singleton
