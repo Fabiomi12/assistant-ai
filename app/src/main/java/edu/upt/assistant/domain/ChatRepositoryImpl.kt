@@ -335,8 +335,7 @@ class ChatRepositoryImpl @Inject constructor(
                 nThreads = threadCount,
                 nBatch = N_BATCH,
                 nUbatch = N_UBATCH,
-                modelName = modelName,
-                modelQuant = modelName
+                model = modelName
             )
             MetricsLogger.log(appContext, metrics)
 

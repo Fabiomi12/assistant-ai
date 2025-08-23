@@ -98,8 +98,7 @@ class BenchmarkRunner @Inject constructor(
                                     nThreads = threads,
                                     nBatch = 0,
                                     nUbatch = 0,
-                                    modelName = model.fileName,
-                                    modelQuant = model.fileName
+                                    model = model.fileName
                                 )
                                 MetricsLogger.log(context, metrics)
                             }

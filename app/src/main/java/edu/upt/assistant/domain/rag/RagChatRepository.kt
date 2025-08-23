@@ -306,8 +306,7 @@ class RagChatRepository @Inject constructor(
                         nThreads          = nThreads,
                         nBatch            = N_BATCH,
                         nUbatch           = N_UBATCH,
-                        modelName         = fileNameFrom(modelUrl),
-                        modelQuant        = modelQuant
+                        model         = fileNameFrom(modelUrl)
                     )
                 )
             } catch (t: Throwable) {

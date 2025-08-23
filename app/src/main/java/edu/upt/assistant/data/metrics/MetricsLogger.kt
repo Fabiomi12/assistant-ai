@@ -26,8 +26,7 @@ data class GenerationMetrics(
     val nThreads: Int,
     val nBatch: Int,
     val nUbatch: Int,
-    val modelName: String,
-    val modelQuant: String
+    val model: String
 ) {
     fun toCsvRow(): String = listOf(
         timestamp,
@@ -49,15 +48,14 @@ data class GenerationMetrics(
         nThreads,
         nBatch,
         nUbatch,
-        modelName,
-        modelQuant
+        model,
     ).joinToString(",", postfix = "\n")
 }
 
 object MetricsLogger {
     private const val FILE_NAME = "generation_metrics.csv"
     private const val HEADER =
-        "timestamp,prefill_ms,first_token_ms,decode_speed,battery_delta,temp_start,temp_end,prompt_chars,prompt_tokens,output_tokens,prompt_id,category,rag_enabled,memory_enabled,top_k,max_tokens,n_threads,n_batch,n_ubatch,model_name,model_quant\n"
+        "timestamp,prefill_ms,first_token_ms,decode_speed,battery_delta,temp_start,temp_end,prompt_chars,prompt_tokens,output_tokens,prompt_id,category,rag_enabled,memory_enabled,top_k,max_tokens,n_threads,n_batch,n_ubatch,model\n"
     private const val HEADER_LENGTH = HEADER.length
 
     fun getFile(context: Context): File = File(context.applicationContext.filesDir, FILE_NAME)
