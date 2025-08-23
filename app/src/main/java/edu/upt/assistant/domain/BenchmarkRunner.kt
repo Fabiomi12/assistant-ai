@@ -9,13 +9,17 @@ import edu.upt.assistant.R
 import edu.upt.assistant.data.SettingsKeys
 import edu.upt.assistant.data.metrics.GenerationMetrics
 import edu.upt.assistant.data.metrics.MetricsLogger
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.collect
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
+import edu.upt.assistant.ui.screens.Conversation
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Serializable
 data class BenchmarkPrompt(
@@ -54,6 +58,15 @@ class BenchmarkRunner @Inject constructor(
                         for (maxTokens in tokenOptions) {
                             for (prompt in prompts) {
                                 val conversationId = "bench-${prompt.id}-${model.fileName}-t${threads}-rag${rag}-mem${memory}-tok${maxTokens}"
+                                val timestamp = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date())
+                                chatRepository.createConversation(
+                                    Conversation(
+                                        id = conversationId,
+                                        title = conversationId,
+                                        lastMessage = prompt.text,
+                                        timestamp = timestamp
+                                    )
+                                )
                                 val start = System.currentTimeMillis()
                                 var firstToken: Long? = null
                                 val builder = StringBuilder()
