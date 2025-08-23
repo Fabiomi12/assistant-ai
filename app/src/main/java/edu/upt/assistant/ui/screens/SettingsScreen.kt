@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -15,6 +16,8 @@ import android.widget.Toast
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cancel
@@ -272,17 +275,24 @@ fun SettingsScreen(
           }
 
           // Model list with live progress updates
-          modelManagementState.models.forEach { modelInfo ->
-            ModelManagementItem(
-              modelInfo = modelInfo,
-              isActive = modelInfo.url == modelManagementState.activeModelUrl,
-              downloadProgress = downloadProgress[modelInfo.url], // Live progress
-              onSetActive = { onActiveModelChange(modelInfo.url) },
-              onStartDownload = { onStartDownload(modelInfo.url) },
-              onCancelDownload = { onCancelDownload(modelInfo.url) },
-              onDelete = { onDeleteModel(modelInfo.url) },
-              onRemove = { onRemoveModel(modelInfo.url) }
-            )
+          LazyColumn(
+            modifier = Modifier
+              .fillMaxWidth()
+              .heightIn(max = 300.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+          ) {
+            items(modelManagementState.models) { modelInfo ->
+              ModelManagementItem(
+                modelInfo = modelInfo,
+                isActive = modelInfo.url == modelManagementState.activeModelUrl,
+                downloadProgress = downloadProgress[modelInfo.url], // Live progress
+                onSetActive = { onActiveModelChange(modelInfo.url) },
+                onStartDownload = { onStartDownload(modelInfo.url) },
+                onCancelDownload = { onCancelDownload(modelInfo.url) },
+                onDelete = { onDeleteModel(modelInfo.url) },
+                onRemove = { onRemoveModel(modelInfo.url) }
+              )
+            }
           }
         }
       }
