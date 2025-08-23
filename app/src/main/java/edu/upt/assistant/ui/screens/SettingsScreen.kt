@@ -216,6 +216,20 @@ fun SettingsScreen(
           }
 
           Button(
+            onClick = {
+              if (!MetricsLogger.hasMetrics(context)) {
+                Toast.makeText(context, "No metrics recorded yet", Toast.LENGTH_SHORT).show()
+              } else {
+                MetricsLogger.clear(context)
+                Toast.makeText(context, "Metrics cleared", Toast.LENGTH_SHORT).show()
+              }
+            },
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Text("Clear metrics CSV")
+          }
+
+          Button(
             onClick = onRunBenchmark,
             enabled = !isBenchmarkRunning,
             modifier = Modifier.fillMaxWidth()
