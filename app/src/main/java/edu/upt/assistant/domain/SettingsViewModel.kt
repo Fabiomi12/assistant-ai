@@ -14,7 +14,8 @@ import javax.inject.Inject
 data class ModelManagementState(
   val models: List<ModelInfo> = emptyList(),
   val activeModelUrl: String = ModelDownloadManager.DEFAULT_MODEL_URL,
-  val hasActiveDownloads: Boolean = false
+  val hasActiveDownloads: Boolean = false,
+  val threadOverrides: Map<String, Int> = emptyMap()
 )
 
 @HiltViewModel
@@ -54,16 +55,26 @@ class SettingsViewModel @Inject constructor(
     .stateIn(viewModelScope, SharingStarted.Eagerly, ModelDownloadManager.DEFAULT_MODEL_URL)
 
   // Enhanced model management state that persists across navigation
+  private val threadOverrides: StateFlow<Map<String, Int>> = dataStore.data
+    .map { prefs ->
+      val urls = prefs[SettingsKeys.MODEL_URLS] ?: emptySet()
+      urls.associateWith { url -> prefs[SettingsKeys.nThreadsForModel(url)] ?: 0 }
+        .filterValues { it > 0 }
+    }
+    .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
   val modelManagementState: StateFlow<ModelManagementState> = combine(
     modelUrls,
     activeModelUrl,
     downloadManager.downloadStates,
-    downloadManager.downloadProgress
-  ) { urls, activeUrl, downloadStates, _ ->
+    downloadManager.downloadProgress,
+    threadOverrides
+  ) { urls, activeUrl, downloadStates, _, threadOverridesMap ->
     ModelManagementState(
       models = downloadManager.getAllModelInfo(urls),
       activeModelUrl = activeUrl,
-      hasActiveDownloads = downloadStates.values.any { it == ModelState.Downloading }
+      hasActiveDownloads = downloadStates.values.any { it == ModelState.Downloading },
+      threadOverrides = threadOverridesMap
     )
   }.stateIn(viewModelScope, SharingStarted.Eagerly, ModelManagementState())
 
@@ -144,5 +155,12 @@ class SettingsViewModel @Inject constructor(
 
   fun deleteModel(url: String) = viewModelScope.launch {
     downloadManager.deleteModel(url)
+  }
+
+  fun setModelThreadOverride(url: String, threads: Int?) = viewModelScope.launch {
+    dataStore.edit { prefs ->
+      val key = SettingsKeys.nThreadsForModel(url)
+      if (threads == null) prefs.remove(key) else prefs[key] = threads
+    }
   }
 }

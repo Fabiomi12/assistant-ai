@@ -81,6 +81,7 @@ fun SettingsScreen(
   onStartDownload: (String) -> Unit,
   onCancelDownload: (String) -> Unit,
   onDeleteModel: (String) -> Unit,
+  onThreadOverrideChange: (String, Int?) -> Unit,
   downloadManager: ModelDownloadManager,
   isBenchmarkRunning: Boolean,
   onRunBenchmark: () -> Unit
@@ -285,7 +286,9 @@ fun SettingsScreen(
               ModelManagementItem(
                 modelInfo = modelInfo,
                 isActive = modelInfo.url == modelManagementState.activeModelUrl,
-                downloadProgress = downloadProgress[modelInfo.url], // Live progress
+                downloadProgress = downloadProgress[modelInfo.url],
+                threadOverride = modelManagementState.threadOverrides[modelInfo.url],
+                onThreadOverrideChange = { onThreadOverrideChange(modelInfo.url, it) },
                 onSetActive = { onActiveModelChange(modelInfo.url) },
                 onStartDownload = { onStartDownload(modelInfo.url) },
                 onCancelDownload = { onCancelDownload(modelInfo.url) },
@@ -305,6 +308,8 @@ private fun ModelManagementItem(
   modelInfo: ModelInfo,
   isActive: Boolean,
   downloadProgress: DownloadProgress?,
+  threadOverride: Int?,
+  onThreadOverrideChange: (Int?) -> Unit,
   onSetActive: () -> Unit,
   onStartDownload: () -> Unit,
   onCancelDownload: () -> Unit,
@@ -387,6 +392,25 @@ private fun ModelManagementItem(
             style = MaterialTheme.typography.bodySmall
           )
         }
+      }
+
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        var localThreads by rememberSaveable { mutableStateOf(threadOverride?.toString() ?: "") }
+        LaunchedEffect(threadOverride) { localThreads = threadOverride?.toString() ?: "" }
+        OutlinedTextField(
+          value = localThreads,
+          onValueChange = {
+            val filtered = it.filter { ch -> ch.isDigit() }
+            localThreads = filtered
+            onThreadOverrideChange(filtered.toIntOrNull())
+          },
+          label = { Text("Threads") },
+          modifier = Modifier.width(100.dp)
+        )
       }
 
       // Action buttons

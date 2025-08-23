@@ -1,7 +1,8 @@
 package edu.upt.assistant
 
-fun interface TokenCallback {
+interface StreamCallback {
   fun onToken(token: String)
+  fun onTimings(prefillMs: Long, firstSampleDelayMs: Long)
 }
 
 object LlamaNative {
@@ -19,7 +20,7 @@ object LlamaNative {
     ctxPtr: Long,
     prompt: String,
     maxTokens: Int,
-    callback: TokenCallback
+    callback: StreamCallback
   )
   @JvmStatic external fun llamaKvCacheClear(ctxPtr: Long)
   @JvmStatic external fun llamaFree(ctxPtr: Long)

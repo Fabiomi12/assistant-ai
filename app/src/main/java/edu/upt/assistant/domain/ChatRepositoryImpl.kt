@@ -7,7 +7,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.room.withTransaction
 import dagger.hilt.android.qualifiers.ApplicationContext
 import edu.upt.assistant.LlamaNative
-import edu.upt.assistant.TokenCallback
+import edu.upt.assistant.StreamCallback
 import edu.upt.assistant.data.SettingsKeys
 import edu.upt.assistant.data.local.db.AppDatabase
 import edu.upt.assistant.data.local.db.ConversationDao
@@ -81,7 +81,7 @@ class ChatRepositoryImpl @Inject constructor(
             Log.d("ChatRepository", "Model path: $modelPath")
 
             val prefs = dataStore.data.first()
-            val configured = prefs[SettingsKeys.N_THREADS]
+            val configured = prefs[SettingsKeys.nThreadsForModel(url)] ?: prefs[SettingsKeys.N_THREADS]
             val optimal = minOf(8, maxOf(6, Runtime.getRuntime().availableProcessors() / 2))
             threadCount = configured ?: optimal
 
@@ -218,18 +218,22 @@ class ChatRepositoryImpl @Inject constructor(
                 ConversationManager(currentSystemPrompt, promptTemplate = currentTemplate)
             }
             val prompt = manager.buildPrompt(text)
+            val historyTokens = manager.getHistory().sumOf { it.content.length / 4 }
+            val retrievedCtxTokens = 0
             manager.appendUser(text)
             Log.d("ChatRepository", "Prompt prepared: $prompt")
 
             // 3) stream tokens
             val llamaStartTime = System.currentTimeMillis()
             var firstTokenTime: Long? = null
+            var nativePrefill: Long = 0
+            var nativeFirstSample: Long = 0
             var tokenCount = 0
             val promptTokens = prompt.length / 4
             val maxTokens = dataStore.data.first()[SettingsKeys.MAX_TOKENS] ?: 96
             Log.d(
                 "ChatRepository",
-                "PERFORMANCE: Prompt tokens: $promptTokens, n_ctx: 1536, n_batch: $N_BATCH, n_ubatch: $N_UBATCH"
+                "PERFORMANCE: Prompt tokens: $promptTokens (history $historyTokens), n_ctx: 1536, n_batch: $N_BATCH, n_ubatch: $N_UBATCH"
             )
 
             val builder = StringBuilder()
@@ -241,25 +245,28 @@ class ChatRepositoryImpl @Inject constructor(
                         ctx,
                         prompt,
                         maxTokens,  // Reduced for faster first token
-                        TokenCallback { token ->
-                            // Capture first token timing
-                            if (firstTokenTime == null) {
-                                firstTokenTime = System.currentTimeMillis()
-                                val prefillTime = firstTokenTime!! - llamaStartTime
-                                Log.d("ChatRepository", "🚀 PERFORMANCE: First token after ${prefillTime}ms (prefill time)")
+                        object : StreamCallback {
+                            override fun onTimings(prefillMs: Long, firstSampleDelayMs: Long) {
+                                nativePrefill = prefillMs
+                                nativeFirstSample = firstSampleDelayMs
                             }
+                            override fun onToken(token: String) {
+                                if (firstTokenTime == null) {
+                                    firstTokenTime = System.currentTimeMillis()
+                                    Log.d("ChatRepository", "🚀 PERFORMANCE: First token after ${firstTokenTime!! - llamaStartTime}ms")
+                                }
 
-                            Log.d("ChatRepository", "Generated token: $token")
-                            tokenCount++
+                                Log.d("ChatRepository", "Generated token: $token")
+                                tokenCount++
 
-                            val normalized = normalizeToken(token)
-                            val output = if (builder.isEmpty()) normalized.trimStart() else normalized
+                                val normalized = normalizeToken(token)
+                                val output = if (builder.isEmpty()) normalized.trimStart() else normalized
 
-                            val success = trySend(output).isSuccess
-                            if (success) {
-                                builder.append(output)
+                                val success = trySend(output).isSuccess
+                                if (success) {
+                                    builder.append(output)
+                                }
                             }
-                            // Keep the callback alive
                         }
                     )
                 } catch (e: Throwable) {
@@ -317,7 +324,9 @@ class ChatRepositoryImpl @Inject constructor(
 
             val endBattery = MetricsLogger.batteryLevel(appContext)
             val endTemp = MetricsLogger.deviceTemperature(appContext)
-            val prefillTime = (firstTokenTime ?: replyTime) - llamaStartTime
+            val prefillTime = if (nativePrefill > 0) nativePrefill else (firstTokenTime ?: replyTime) - llamaStartTime
+            val firstSampleDelay = nativeFirstSample
+            val firstTokenTotal = prefillTime + firstSampleDelay
             val decodeTimeMs = replyTime - (firstTokenTime ?: replyTime)
             val decodeSpeed = if (decodeTimeMs > 0) tokenCount / (decodeTimeMs / 1000.0) else 0.0
             Log.d(
@@ -327,13 +336,17 @@ class ChatRepositoryImpl @Inject constructor(
             val metrics = GenerationMetrics(
                 timestamp = replyTime,
                 prefillTimeMs = prefillTime,
-                firstTokenDelayMs = prefillTime,
+                firstSampleDelayMs = firstSampleDelay,
+                firstTokenTimeMs = firstTokenTotal,
+                decodeTimeMs = decodeTimeMs,
                 decodeSpeed = decodeSpeed,
                 batteryDelta = startBattery - endBattery,
                 startTempC = startTemp,
                 endTempC = endTemp,
                 promptChars = prompt.length,
                 promptTokens = promptTokens,
+                historyTokens = historyTokens,
+                retrievedCtxTokens = retrievedCtxTokens,
                 outputTokens = tokenCount,
                 promptId = conversationId,
                 category = "",
