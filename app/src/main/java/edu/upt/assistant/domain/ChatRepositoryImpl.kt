@@ -4,10 +4,12 @@ import android.content.Context
 import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.room.withTransaction
 import dagger.hilt.android.qualifiers.ApplicationContext
 import edu.upt.assistant.LlamaNative
 import edu.upt.assistant.TokenCallback
 import edu.upt.assistant.data.SettingsKeys
+import edu.upt.assistant.data.local.db.AppDatabase
 import edu.upt.assistant.data.local.db.ConversationDao
 import edu.upt.assistant.data.local.db.ConversationEntity
 import edu.upt.assistant.data.local.db.MessageDao
@@ -44,7 +46,8 @@ class ChatRepositoryImpl @Inject constructor(
     private val msgDao: MessageDao,
     private val modelDownloadManager: ModelDownloadManager,
     private val dataStore: DataStore<Preferences>,
-    @ApplicationContext private val appContext: Context
+    @ApplicationContext private val appContext: Context,
+    private val db: AppDatabase
 ) : ChatRepository {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -187,15 +190,18 @@ class ChatRepositoryImpl @Inject constructor(
             val startTemp = MetricsLogger.deviceTemperature(appContext)
             val now = System.currentTimeMillis()
             // 1) persist user message
-            msgDao.insert(
-                MessageEntity(
-                    conversationId = conversationId,
-                    text = text,
-                    isUser = true,
-                    timestamp = now
+            // Ensure the parent conversation exists before inserting the message
+            db.withTransaction {
+                convDao.upsert(ConversationEntity(conversationId, conversationId, text, now))
+                msgDao.insert(
+                    MessageEntity(
+                        conversationId = conversationId,
+                        text = text,
+                        isUser = true,
+                        timestamp = now
+                    )
                 )
-            )
-            convDao.upsert(ConversationEntity(conversationId, conversationId, text, now))
+            }
             Log.d("ChatRepository", "User message saved")
 
             // 2) prepare prompt
@@ -269,29 +275,34 @@ class ChatRepositoryImpl @Inject constructor(
             Log.d("ChatRepository", "Complete reply: $cleanReply")
             manager.appendAssistant(cleanReply)
             val replyTime = System.currentTimeMillis()
-            msgDao.insert(
-                MessageEntity(
-                    conversationId = conversationId,
-                    text = cleanReply,
-                    isUser = false,
-                    timestamp = replyTime
+            // Ensure the conversation is present before inserting its messages
+            db.withTransaction {
+                convDao.upsert(ConversationEntity(conversationId, conversationId, cleanReply, replyTime))
+                msgDao.insert(
+                    MessageEntity(
+                        conversationId = conversationId,
+                        text = cleanReply,
+                        isUser = false,
+                        timestamp = replyTime
+                    )
                 )
-            )
-            convDao.upsert(ConversationEntity(conversationId, conversationId, cleanReply, replyTime))
+            }
             Log.d("ChatRepository", "Assistant message saved")
 
             if (!generationFailed && expectsLongAnswer && tokenCount < 20) {
                 val followUp = "Want me to continue?"
                 val followUpTime = System.currentTimeMillis()
-                msgDao.insert(
-                    MessageEntity(
-                        conversationId = conversationId,
-                        text = followUp,
-                        isUser = false,
-                        timestamp = followUpTime
+                db.withTransaction {
+                    convDao.upsert(ConversationEntity(conversationId, conversationId, followUp, followUpTime))
+                    msgDao.insert(
+                        MessageEntity(
+                            conversationId = conversationId,
+                            text = followUp,
+                            isUser = false,
+                            timestamp = followUpTime
+                        )
                     )
-                )
-                convDao.upsert(ConversationEntity(conversationId, conversationId, followUp, followUpTime))
+                }
                 trySend("\n" + followUp)
             }
 
