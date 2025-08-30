@@ -40,6 +40,7 @@ data class BenchmarkPrompt(
 class BenchmarkRunner @Inject constructor(
     @ApplicationContext private val context: Context,
     private val chatRepository: ChatRepository,
+    private val ragRepository: RagChatRepository,
     private val dataStore: DataStore<Preferences>,
     private val modelDownloadManager: ModelDownloadManager
 ) {
@@ -50,12 +51,11 @@ class BenchmarkRunner @Inject constructor(
         }
         val testPrompts = prompts - setupPrompts
 
-        val repo = chatRepository as? RagChatRepository
         for (prompt in setupPrompts) {
             when (prompt.category) {
-                "memory_setup" -> prompt.insert_memory?.let { repo?.addMemory(it) }
+                "memory_setup" -> prompt.insert_memory?.let { ragRepository.addMemory(it) }
                 "rag_setup" -> if (prompt.doc_id != null && prompt.doc_text != null) {
-                    repo?.addDocument(prompt.doc_id, prompt.doc_text)
+                    ragRepository.addDocument(prompt.doc_id, prompt.doc_text)
                 }
             }
         }
