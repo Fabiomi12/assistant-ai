@@ -4,7 +4,6 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import edu.upt.assistant.LlamaNative
 import edu.upt.assistant.ui.screens.Conversation
 import edu.upt.assistant.ui.screens.Message
 import edu.upt.assistant.domain.rag.RagChatRepository
@@ -183,8 +182,7 @@ class ChatViewModel @Inject constructor(
             try {
                 val repoImpl = repo as? ChatRepositoryImpl
                 if (repoImpl != null) {
-                    val ctx = repoImpl.getLlamaContextPublic()
-                    LlamaNative.llamaKvCacheClear(ctx)
+                    repoImpl.clearKvCache()
                     Log.d("ChatViewModel", "KV cache cleared successfully")
                 }
             } catch (e: Exception) {
