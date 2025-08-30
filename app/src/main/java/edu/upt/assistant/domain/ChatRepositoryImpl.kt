@@ -74,42 +74,43 @@ class ChatRepositoryImpl @Inject constructor(
 
     private fun initLlamaContext(): Deferred<Long> {
         return scope.async {
-            nativeMutex.withLock {
-                Log.d("ChatRepository", "Initializing llama context")
-                val url = getModelUrl()
-                if (!modelDownloadManager.isModelAvailable(url)) {
-                    Log.e("ChatRepository", "Model not available")
-                    throw IllegalStateException("Model not available. Please download the model first.")
-                }
-
-                val modelPath = modelDownloadManager.getModelPath(url)
-                Log.d("ChatRepository", "Model path: $modelPath")
-
-                val prefs = dataStore.data.first()
-                val configured = prefs[SettingsKeys.nThreadsForModel(url)] ?: prefs[SettingsKeys.N_THREADS]
-                val optimal = minOf(8, maxOf(6, Runtime.getRuntime().availableProcessors() / 2))
-                threadCount = configured ?: optimal
-
-                modelName = java.io.File(modelPath).name
-                val ctx = LlamaNative.llamaCreate(
-                    modelPath,
-                    threadCount
-                )
-                if (ctx == 0L) {
-                    Log.e("ChatRepository", "Failed to create llama context")
-                    throw IllegalStateException("Failed to create llama context")
-                }
-                Log.d("ChatRepository", "Llama context created: $ctx")
-                ctx
+            Log.d("ChatRepository", "Initializing llama context")
+            val url = getModelUrl()
+            if (!modelDownloadManager.isModelAvailable(url)) {
+                Log.e("ChatRepository", "Model not available")
+                throw IllegalStateException("Model not available. Please download the model first.")
             }
+
+            val modelPath = modelDownloadManager.getModelPath(url)
+            Log.d("ChatRepository", "Model path: $modelPath")
+
+            val prefs = dataStore.data.first()
+            val configured = prefs[SettingsKeys.nThreadsForModel(url)] ?: prefs[SettingsKeys.N_THREADS]
+            val optimal = minOf(8, maxOf(6, Runtime.getRuntime().availableProcessors() / 2))
+            threadCount = configured ?: optimal
+
+            modelName = java.io.File(modelPath).name
+            val ctx = LlamaNative.llamaCreate(
+                modelPath,
+                threadCount
+            )
+            if (ctx == 0L) {
+                Log.e("ChatRepository", "Failed to create llama context")
+                throw IllegalStateException("Failed to create llama context")
+            }
+            Log.d("ChatRepository", "Llama context created: $ctx")
+            ctx
         }.also { llamaCtxDeferred = it }
     }
 
-    // Lazily initialize the native llama context
-    private suspend fun getLlamaContext(): Long {
+    private suspend fun getLlamaContextLocked(): Long {
         val deferred = llamaCtxDeferred ?: initLlamaContext()
         return deferred.await()
     }
+
+    // Lazily initialize the native llama context
+    private suspend fun getLlamaContext(): Long =
+        nativeMutex.withLock { getLlamaContextLocked() }
 
     private fun observeModelChanges() {
         scope.launch {
@@ -201,9 +202,6 @@ class ChatRepositoryImpl @Inject constructor(
         }
 
         try {
-            val ctx = getLlamaContext()
-            Log.d("ChatRepository", "Got llama context: $ctx")
-
             val startBattery = MetricsLogger.batteryLevel(appContext)
             val startTemp = MetricsLogger.deviceTemperature(appContext)
             val now = System.currentTimeMillis()
@@ -253,6 +251,8 @@ class ChatRepositoryImpl @Inject constructor(
                 Log.d("ChatRepository", "Starting token generation at ${System.currentTimeMillis()}")
                 try {
                     nativeMutex.withLock {
+                        val ctx = getLlamaContextLocked()
+                        Log.d("ChatRepository", "Got llama context: $ctx")
                         LlamaNative.llamaGenerateStream(
                             ctx,
                             prompt,
@@ -403,8 +403,8 @@ class ChatRepositoryImpl @Inject constructor(
     suspend fun getLlamaContextPublic(): Long = getLlamaContext()
 
     suspend fun clearKvCache() {
-        val ctx = getLlamaContext()
         nativeMutex.withLock {
+            val ctx = getLlamaContextLocked()
             LlamaNative.llamaKvCacheClear(ctx)
         }
     }
