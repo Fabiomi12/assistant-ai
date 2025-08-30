@@ -5,14 +5,18 @@ import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.remove
 import dagger.hilt.android.qualifiers.ApplicationContext
 import edu.upt.assistant.R
 import edu.upt.assistant.data.SettingsKeys
 import edu.upt.assistant.domain.rag.DocumentRepository
 import edu.upt.assistant.domain.rag.RagChatRepository
 import edu.upt.assistant.ui.screens.Conversation
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.take
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
@@ -20,6 +24,7 @@ import java.util.Date
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.max
 
 enum class BenchmarkProfile { FAST, FULL }
 
@@ -56,7 +61,9 @@ class BenchmarkRunner @Inject constructor(
 
     suspend fun run(profile: BenchmarkProfile = BenchmarkProfile.FAST) {
         val prompts = loadPrompts()
-        val setupPrompts = prompts.filter { it.category == "memory_setup" || it.category == "rag_setup" }
+        val setupPrompts = prompts.filter {
+            it.category == "memory_setup" || it.category == "rag_setup"
+        }
         val testPrompts = prompts - setupPrompts
 
         // --- Ingest setup once (outside any sweeps) ---
@@ -80,9 +87,11 @@ class BenchmarkRunner @Inject constructor(
         for (model in models) {
             ensureModel(model.url)
 
-            // --- Calibrate threads quickly (e.g., 6 vs 8) ---
-            val bestThreads = calibrateThreads(model.fileName, candidates = listOf(6, 8), sampleText =
-                testPrompts.firstOrNull { it.category == "general" && !it.text.isNullOrBlank() }?.text ?: "OK"
+            // --- Calibrate threads quickly (e.g., 6 vs 8) with tiny tokens ---
+            val bestThreads = calibrateThreads(
+                modelFileName = model.fileName,
+                candidates = listOf(6, 8),
+                sampleText = testPrompts.firstOrNull { it.category == "general" && !it.text.isNullOrBlank() }?.text ?: "OK"
             )
             ensureThreads(bestThreads)
 
@@ -105,7 +114,7 @@ class BenchmarkRunner @Inject constructor(
                     prompt.temp?.let { ensureTemp(it.toFloat()) }
                     prompt.max_tokens?.let { ensureMaxTokens(it) }
 
-                    // Tag metrics with benchmark category
+                    // Tag metrics with benchmark category for RagChatRepository
                     ensureBenchCategory(prompt.category)
 
                     val ragOn = lastRag == true
@@ -117,44 +126,37 @@ class BenchmarkRunner @Inject constructor(
                     val baseId = "bench-${prompt.id}-${model.fileName}-t${nThreads}-rag${ragOn}-mem${memOn}-tok${maxTok}"
                     val timestamp = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date())
 
-                    // --- 1) First-token latency (cheap) ---
-                    val convFtl = "${baseId}-ftl"
-                    chatRepository.createConversation(
-                        Conversation(id = convFtl, title = convFtl, lastMessage = text, timestamp = timestamp)
-                    )
-                    // BEFORE full run:
-                    val prevMax = lastMaxTokens
-                    ensureMaxTokens(1) // FTL-friendly
-                    val ftlMs = measureFirstToken(convFtl, text)
-                    ensureMaxTokens(prevMax ?: maxTok) // restore
+                    val needsFull = (prompt.expected_regex != null) || (profile == BenchmarkProfile.FULL)
 
-// FULL RUN BRANCH (regex or FULL profile)
-                    if (prompt.expected_regex != null || profile == BenchmarkProfile.FULL) {
+                    if (needsFull) {
+                        // One run: measure FTL inline on first token, and collect to the end for validation
                         val convFull = "${baseId}-full"
                         chatRepository.createConversation(Conversation(convFull, convFull, text, timestamp))
 
-                        // let RagChatRepository be source of truth for latency/throughput/battery/temp/etc.
-                        val sb = StringBuilder()
-                        val start = System.nanoTime()
-                        chatRepository.sendMessage(convFull, text).collect { tok -> sb.append(tok) }
-                        val out = sb.toString().trim()
-                        val totalMs = (System.nanoTime() - start) / 1_000_000
+                        val result = runFullWithFtl(convFull, text)
+                        val out = result.output
+                        val ftlMs = result.ftlMs
+                        val totalMs = result.totalMs
 
-                        // Optional: do ONLY correctness here (no MetricsLogger.log to avoid duplicates)
                         prompt.expected_regex?.let { rx ->
                             val passed = Regex(rx, RegexOption.IGNORE_CASE).matches(out)
                             Log.d("BenchmarkRunner", "${prompt.id} => passed=$passed ftl=${ftlMs}ms total=${totalMs}ms")
                         }
-                        if (prompt.category == "rag" && prompt.ref_doc_id != null) {
+                        if (prompt.category == "rag" && !prompt.ref_doc_id.isNullOrBlank()) {
                             val (hit, rank) = computeHitAtK(text, prompt.ref_doc_id, 5)
                             Log.d("BenchmarkRunner", "${prompt.id} => hitAt5=$hit${rank?.let { ", rank=$it" } ?: ""}")
                         }
                     } else {
-                        // FTL-only entry if you want to keep a tiny log (again, avoid MetricsLogger here)
+                        // Super fast FTL-only probe
+                        val convFtl = "${baseId}-ftl"
+                        chatRepository.createConversation(Conversation(convFtl, convFtl, text, timestamp))
+
+                        val prevMax = lastMaxTokens
+                        ensureMaxTokens(1) // make native finish quickly
+                        val ftlMs = measureFirstToken(convFtl, text) // uses take(1)
+                        ensureMaxTokens(prevMax ?: maxTok)
                         Log.d("BenchmarkRunner", "${prompt.id} => ftl=${ftlMs}ms (FTL only)")
                     }
-
-
 
                     // Restore defaults if you overrode per-prompt
                     prompt.temp?.let { ensureTemp(null) } // remove override → repo default
@@ -167,7 +169,8 @@ class BenchmarkRunner @Inject constructor(
 
     // --- helpers ---
 
-    private suspend fun computeHitAtK(query: String, refDocId: String, k: Int): Pair<Boolean, Int?> {
+    private suspend fun computeHitAtK(query: String, refDocId: String?, k: Int): Pair<Boolean, Int?> {
+        if (refDocId.isNullOrBlank()) return false to null
         return try {
             val retrieved = documentRepository.searchSimilarContent(query, topK = k)
             val idx = retrieved.indexOfFirst {
@@ -191,6 +194,25 @@ class BenchmarkRunner @Inject constructor(
         val start = System.nanoTime()
         val firstTok = chatRepository.sendMessage(conversationId, text).take(1).firstOrNull()
         return if (firstTok == null) -1 else (System.nanoTime() - start) / 1_000_000
+    }
+
+    private data class FullRun(val output: String, val ftlMs: Long, val totalMs: Long)
+
+    private suspend fun runFullWithFtl(conversationId: String, text: String): FullRun {
+        val startNs = System.nanoTime()
+        var ftlMs: Long = -1
+        val sb = StringBuilder()
+
+        // No take(1): keep collecting; record FTL on first token emission
+        chatRepository.sendMessage(conversationId, text)
+            .onEach { tok ->
+                if (ftlMs < 0) ftlMs = (System.nanoTime() - startNs) / 1_000_000
+                sb.append(tok)
+            }
+            .collect()
+
+        val totalMs = (System.nanoTime() - startNs) / 1_000_000
+        return FullRun(sb.toString().trim(), max(ftlMs, 0), totalMs)
     }
 
     private suspend fun calibrateThreads(

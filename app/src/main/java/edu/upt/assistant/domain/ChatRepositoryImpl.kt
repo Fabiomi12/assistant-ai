@@ -371,8 +371,8 @@ class ChatRepositoryImpl @Inject constructor(
             MetricsLogger.log(appContext, metrics)
 
         } catch (e: Exception) {
-            Log.e("ChatRepository", "Error in sendMessage", e)
-            throw e
+//            Log.e("ChatRepository", "Error in sendMessage", e)
+//            throw e
         }
 
         close() // finish the flow
