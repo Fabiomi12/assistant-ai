@@ -14,13 +14,13 @@
   {"id":"memory_pet_recall","category":"memory","text":"Answer with only the pet's name you know about me.","expected_regex":"^Luna$","temp":0.1,"max_tokens":8},
 
   {"id":"rag_capital_doc","category":"rag_setup","doc_id":"france_capital","doc_text":"France is a country in Europe. The capital of France is Paris."},
-  {"id":"rag_capital_question","category":"rag","text":"According to the documents, answer with only the capital of France.","expected_regex":"^Paris$","temp":0.1,"max_tokens":8},
+  {"id":"rag_capital_question","category":"rag","text":"According to the documents, answer with only the capital of France.","expected_regex":"^Paris$","temp":0.1,"max_tokens":8,"ref_doc_id":"france_capital"},
 
   {"id":"rag_history_doc","category":"rag_setup","doc_id":"us_first_president","doc_text":"In 1789, George Washington became the first president of the United States."},
-  {"id":"rag_history_question","category":"rag","text":"From the knowledge base, who was the first president of the United States? Answer with only the name.","expected_regex":"^George\\s+Washington$","temp":0.1,"max_tokens":8},
+  {"id":"rag_history_question","category":"rag","text":"From the knowledge base, who was the first president of the United States? Answer with only the name.","expected_regex":"^George\\s+Washington$","temp":0.1,"max_tokens":8,"ref_doc_id":"us_first_president"},
 
   {"id":"rag_quote_doc","category":"rag_setup","doc_id":"science_quote","doc_text":"Albert Einstein once said, \"Science is a wonderful thing if one does not have to earn one's living at it.\""},
-  {"id":"rag_quote_question","category":"rag","text":"Find a quote about science from the documents. Return the quote text only.","expected_regex":"Science is a wonderful thing","temp":0.3,"max_tokens":48},
+  {"id":"rag_quote_question","category":"rag","text":"Find a quote about science from the documents. Return the quote text only.","expected_regex":"Science is a wonderful thing","temp":0.3,"max_tokens":48,"ref_doc_id":"science_quote"},
 
   {"id":"memory_city_store","category":"memory_setup","insert_memory":"I live in Tirana."},
   {"id":"memory_city_recall","category":"memory","text":"Answer with only the city I live in.","expected_regex":"^Tirana$","temp":0.1,"max_tokens":8},
@@ -32,13 +32,13 @@
   {"id":"memory_club_recall","category":"memory","text":"Answer with only my favorite football club.","expected_regex":"^Real\\s+Madrid$","temp":0.1,"max_tokens":8},
 
   {"id":"rag_water_bp_doc","category":"rag_setup","doc_id":"water_boiling_point","doc_text":"At sea level, the boiling point of water is 100 degrees Celsius."},
-  {"id":"rag_water_bp_question","category":"rag","text":"According to the documents, what is the boiling point of water at sea level? Answer only with the number.","expected_regex":"^100$","temp":0.1,"max_tokens":8},
+  {"id":"rag_water_bp_question","category":"rag","text":"According to the documents, what is the boiling point of water at sea level? Answer only with the number.","expected_regex":"^100$","temp":0.1,"max_tokens":8,"ref_doc_id":"water_boiling_point"},
 
   {"id":"rag_kotlin_doc","category":"rag_setup","doc_id":"kotlin_facts","doc_text":"Kotlin is a statically typed programming language created by JetBrains. It runs on the JVM and was first released in 2011."},
-  {"id":"rag_kotlin_question","category":"rag","text":"From the knowledge base, answer only with the company that created Kotlin.","expected_regex":"^JetBrains$","temp":0.1,"max_tokens":8},
+  {"id":"rag_kotlin_question","category":"rag","text":"From the knowledge base, answer only with the company that created Kotlin.","expected_regex":"^JetBrains$","temp":0.1,"max_tokens":8,"ref_doc_id":"kotlin_facts"},
 
   {"id":"rag_bones_doc","category":"rag_setup","doc_id":"human_bones","doc_text":"An adult human typically has 206 bones in the body."},
-  {"id":"rag_bones_question","category":"rag","text":"According to the documents, how many bones does an adult human have? Answer only with the number.","expected_regex":"^206$","temp":0.1,"max_tokens":8},
+  {"id":"rag_bones_question","category":"rag","text":"According to the documents, how many bones does an adult human have? Answer only with the number.","expected_regex":"^206$","temp":0.1,"max_tokens":8,"ref_doc_id":"human_bones"},
 
   {"id":"general_sort_list","category":"general","text":"Sort ascending and answer only with comma-separated values: 9, 1, 5, 3","expected_regex":"^1,\\s*3,\\s*5,\\s*9$","temp":0.0,"max_tokens":16},
   {"id":"general_unit_convert","category":"general","text":"Answer only with the number: Convert 5 kilometers to meters.","expected_regex":"^5000$","temp":0.0,"max_tokens":16},

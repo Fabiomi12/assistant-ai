@@ -22,6 +22,7 @@ object SettingsKeys {
   val MAX_TOKENS     = intPreferencesKey("max_tokens")         // default 96
   val TEMP           = floatPreferencesKey("temp")             // default 0.7f
   val MEMORY_ENABLED = booleanPreferencesKey("memory_enabled") // default true
+  val BENCH_CATEGORY = stringPreferencesKey("bench_category")
 
   fun nThreadsForModel(url: String) = intPreferencesKey("n_threads_${url.hashCode()}")
 
