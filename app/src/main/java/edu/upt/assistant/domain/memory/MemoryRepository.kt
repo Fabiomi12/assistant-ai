@@ -12,7 +12,6 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.max
 import kotlin.math.sqrt
 
 @Singleton
@@ -112,19 +111,39 @@ class MemoryRepository @Inject constructor(
             MemoryMatch(m, dot, emb)
         }
 
-        if (scored.isEmpty()) return emptyList()
+        if (scored.isEmpty()) {
+            val queryTerms = query.lowercase().split(Regex("\\W+")).filter { it.length > 2 }
+            if (queryTerms.isNotEmpty()) {
+                val fallback = memories.filter { mem ->
+                    val lower = mem.content.lowercase()
+                    queryTerms.any { lower.contains(it) }
+                }
+                return fallback.take(topK)
+            }
+            return emptyList()
+        }
 
-        // 4) Filter by threshold but always keep at least top-1
+        // 4) Filter by threshold
         val sorted = scored.sortedByDescending { it.similarity }
-        val filtered = sorted.filter { it.similarity >= MIN_SIMILARITY_THRESHOLD }
-        val base = if (filtered.isEmpty()) listOf(sorted.first()) else filtered
+        val base = sorted.filter { it.similarity >= MIN_SIMILARITY_THRESHOLD }
 
         // 5) Apply MMR with correct K
-        val k = max(1, minOf(topK, base.size))
+        val k = minOf(topK, base.size)
         val mmr = applyMmr(base, k = k, lambda = 0.7f)
 
         Log.d(TAG, "Found ${mmr.size} relevant memories after MMR (k=$k)")
-        return mmr.map { it.memory }
+        val result = mmr.map { it.memory }
+        if (result.isEmpty()) {
+            val queryTerms = query.lowercase().split(Regex("\\W+")).filter { it.length > 2 }
+            if (queryTerms.isNotEmpty()) {
+                val fallback = memories.filter { mem ->
+                    val lower = mem.content.lowercase()
+                    queryTerms.any { lower.contains(it) }
+                }
+                return fallback.take(topK)
+            }
+        }
+        return result
     }
 
     fun getAllMemories(): Flow<List<MemoryEntity>> = memoryDao.getAll()
