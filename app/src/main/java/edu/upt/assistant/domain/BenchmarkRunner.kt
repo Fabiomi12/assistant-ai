@@ -7,6 +7,8 @@ import androidx.datastore.preferences.core.edit
 import dagger.hilt.android.qualifiers.ApplicationContext
 import edu.upt.assistant.R
 import edu.upt.assistant.data.SettingsKeys
+import android.util.Log
+import edu.upt.assistant.domain.rag.RagChatRepository
 import edu.upt.assistant.data.metrics.GenerationMetrics
 import edu.upt.assistant.data.metrics.MetricsLogger
 import kotlinx.coroutines.flow.collect
@@ -24,20 +26,39 @@ import java.util.Locale
 @Serializable
 data class BenchmarkPrompt(
     val id: String,
-    val text: String,
     val category: String,
-    val expected: String
+    val text: String? = null,
+    val expected_regex: String? = null,
+    val temp: Double? = null,
+    val max_tokens: Int? = null,
+    val insert_memory: String? = null,
+    val doc_id: String? = null,
+    val doc_text: String? = null,
 )
 
 @Singleton
 class BenchmarkRunner @Inject constructor(
     @ApplicationContext private val context: Context,
     private val chatRepository: ChatRepository,
+    private val ragRepository: RagChatRepository,
     private val dataStore: DataStore<Preferences>,
     private val modelDownloadManager: ModelDownloadManager
 ) {
     suspend fun run() {
         val prompts = loadPrompts()
+        val setupPrompts = prompts.filter {
+            it.category == "memory_setup" || it.category == "rag_setup"
+        }
+        val testPrompts = prompts - setupPrompts
+
+        for (prompt in setupPrompts) {
+            when (prompt.category) {
+                "memory_setup" -> prompt.insert_memory?.let { ragRepository.addMemory(it) }
+                "rag_setup" -> if (prompt.doc_id != null && prompt.doc_text != null) {
+                    ragRepository.addDocument(prompt.doc_id, prompt.doc_text)
+                }
+            }
+        }
 
         val modelUrls = dataStore.data.map { prefs ->
             prefs[SettingsKeys.MODEL_URLS] ?: setOf(ModelDownloadManager.DEFAULT_MODEL_URL)
@@ -70,17 +91,25 @@ class BenchmarkRunner @Inject constructor(
                         for (maxTokens in tokenOptions) {
                             dataStore.edit { it[SettingsKeys.MAX_TOKENS] = maxTokens }
 
-                            for (prompt in prompts) {
+                            for (prompt in testPrompts) {
+                                prompt.temp?.let { t ->
+                                    dataStore.edit { it[SettingsKeys.TEMP] = t.toFloat() }
+                                }
+                                prompt.max_tokens?.let { mt ->
+                                    dataStore.edit { it[SettingsKeys.MAX_TOKENS] = mt }
+                                }
+
                                 val conversationId =
                                     "bench-${prompt.id}-${model.fileName}-t${threads}-rag${rag}-mem${memory}-tok${maxTokens}"
                                 val timestamp = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
                                     .format(Date())
 
+                                val text = prompt.text ?: ""
                                 chatRepository.createConversation(
                                     Conversation(
                                         id = conversationId,
                                         title = conversationId,
-                                        lastMessage = prompt.text,
+                                        lastMessage = text,
                                         timestamp = timestamp
                                     )
                                 )
@@ -88,9 +117,45 @@ class BenchmarkRunner @Inject constructor(
                                 // Run and stream output; metrics are logged inside RagChatRepository.
                                 val builder = StringBuilder()
                                 chatRepository
-                                    .sendMessage(conversationId, prompt.text)
+                                    .sendMessage(conversationId, text)
                                     .collect { token -> builder.append(token) }
 
+                                val out = builder.toString().trim()
+                                prompt.expected_regex?.let { rx ->
+                                    val passed = Regex(rx, RegexOption.IGNORE_CASE).containsMatchIn(out)
+                                    MetricsLogger.log(
+                                        context,
+                                        GenerationMetrics(
+                                            timestamp = System.currentTimeMillis(),
+                                            prefillTimeMs = 0,
+                                            firstSampleDelayMs = 0,
+                                            firstTokenTimeMs = 0,
+                                            decodeTimeMs = 0,
+                                            decodeSpeed = 0.0,
+                                            batteryDelta = 0f,
+                                            startTempC = 0f,
+                                            endTempC = 0f,
+                                            promptChars = text.length,
+                                            promptTokens = 0,
+                                            historyTokens = 0,
+                                            retrievedCtxTokens = 0,
+                                            outputTokens = 0,
+                                            promptId = prompt.id,
+                                            category = prompt.category,
+                                            ragEnabled = rag,
+                                            memoryEnabled = memory,
+                                            topK = 0,
+                                            maxTokens = maxTokens,
+                                            nThreads = threads,
+                                            nBatch = 0,
+                                            nUbatch = 0,
+                                            model = model.fileName,
+                                            passed = passed,
+                                            output = out,
+                                        ),
+                                    )
+                                    Log.d("BenchmarkRunner", "${prompt.id} => $passed : $out")
+                                }
                             }
                         }
                     }
@@ -103,7 +168,8 @@ class BenchmarkRunner @Inject constructor(
     private fun loadPrompts(): List<BenchmarkPrompt> {
         val stream = context.resources.openRawResource(R.raw.benchmark_prompts)
         val json = stream.bufferedReader().use { it.readText() }
-        return Json.decodeFromString(json)
+        val jsonCodec = Json { ignoreUnknownKeys = true }
+        return jsonCodec.decodeFromString(json)
     }
 }
 
