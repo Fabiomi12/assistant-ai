@@ -23,6 +23,8 @@ object SettingsKeys {
   val TEMP           = floatPreferencesKey("temp")             // default 0.7f
   val MEMORY_ENABLED = booleanPreferencesKey("memory_enabled") // default true
   val BENCH_CATEGORY = stringPreferencesKey("bench_category")
+  val BENCH_EXPECTED_REGEX = stringPreferencesKey("bench_expected_regex")
+  val BENCH_REF_DOC_ID = stringPreferencesKey("bench_ref_doc_id")
 
   fun nThreadsForModel(url: String) = intPreferencesKey("n_threads_${url.hashCode()}")
 

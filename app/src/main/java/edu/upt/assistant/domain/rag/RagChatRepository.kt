@@ -32,6 +32,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.text.RegexOption
 
 // NEW: DataStore imports
 import androidx.datastore.core.DataStore
@@ -135,6 +136,8 @@ class RagChatRepository @Inject constructor(
             val memoryEnabled= prefs[SettingsKeys.MEMORY_ENABLED] ?: true
             val maxTokensCfg = prefs[SettingsKeys.MAX_TOKENS]     ?: guessMaxTokens(text)
             val benchCategory= prefs[SettingsKeys.BENCH_CATEGORY] ?: ""
+            val expectedRegex = prefs[SettingsKeys.BENCH_EXPECTED_REGEX]
+            val refDocId = prefs[SettingsKeys.BENCH_REF_DOC_ID]
             val modelUrlPref = runBlocking { baseRepository.getModelUrl() }
             val nThreadsCfg  = prefs[SettingsKeys.nThreadsForModel(modelUrlPref)]
                 ?: prefs[SettingsKeys.N_THREADS]
@@ -292,6 +295,19 @@ class RagChatRepository @Inject constructor(
             val decodeSpeed     = if (decodeMs > 0) outputTokApprox / (decodeMs / 1000.0) else 0.0
 
             try {
+                val passed = expectedRegex?.let { Regex(it, RegexOption.IGNORE_CASE).matches(reply) }
+                val (hit, hitRank) = if (!refDocId.isNullOrBlank()) {
+                    try {
+                        val retrieved = documentRepository.searchSimilarContent(text, topK = 5)
+                        val idx = retrieved.indexOfFirst {
+                            it.documentId.equals(refDocId, true) || it.documentTitle.equals(refDocId, true)
+                        }
+                        Pair(idx >= 0, if (idx >= 0) idx + 1 else null)
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "Hit@k failed: ${'$'}{t.message}")
+                        Pair(false, null)
+                    }
+                } else Pair(null, null)
                 MetricsLogger.log(
                     appContext,
                     GenerationMetrics(
@@ -318,11 +334,15 @@ class RagChatRepository @Inject constructor(
                         nThreads          = nThreadsCfg,
                         nBatch            = N_BATCH,
                         nUbatch           = N_UBATCH,
-                        model             = fileNameFrom(modelUrl)
+                        model             = fileNameFrom(modelUrl),
+                        passed           = passed,
+                        output           = reply,
+                        hitAtK          = hit,
+                        hitRank         = hitRank,
                     )
                 )
             } catch (t: Throwable) {
-                Log.w(TAG, "Failed to write metrics: ${t.message}")
+                Log.w(TAG, "Failed to write metrics: ${'$'}{t.message}")
             }
 
             // persist assistant reply

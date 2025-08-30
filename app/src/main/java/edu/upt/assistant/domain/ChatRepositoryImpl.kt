@@ -41,6 +41,7 @@ import java.util.Date
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.text.RegexOption
 
 @Singleton
 class ChatRepositoryImpl @Inject constructor(
@@ -238,7 +239,9 @@ class ChatRepositoryImpl @Inject constructor(
             var nativeFirstSample: Long = 0
             var tokenCount = 0
             val promptTokens = prompt.length / 4
-            val maxTokens = dataStore.data.first()[SettingsKeys.MAX_TOKENS] ?: 96
+            val prefs = dataStore.data.first()
+            val maxTokens = prefs[SettingsKeys.MAX_TOKENS] ?: 96
+            val expectedRegex = prefs[SettingsKeys.BENCH_EXPECTED_REGEX]
             Log.d(
                 "ChatRepository",
                 "PERFORMANCE: Prompt tokens: $promptTokens (history $historyTokens), n_ctx: 1536, n_batch: $N_BATCH, n_ubatch: $N_UBATCH"
@@ -342,6 +345,7 @@ class ChatRepositoryImpl @Inject constructor(
                 "ChatRepository",
                 "PERFORMANCE: Token counts - prompt: $promptTokens, output: $tokenCount"
             )
+            val passed = expectedRegex?.let { Regex(it, RegexOption.IGNORE_CASE).matches(cleanReply) }
             val metrics = GenerationMetrics(
                 timestamp = replyTime,
                 prefillTimeMs = prefillTime,
@@ -366,7 +370,9 @@ class ChatRepositoryImpl @Inject constructor(
                 nThreads = threadCount,
                 nBatch = N_BATCH,
                 nUbatch = N_UBATCH,
-                model = modelName
+                model = modelName,
+                passed = passed,
+                output = cleanReply,
             )
             MetricsLogger.log(appContext, metrics)
 
