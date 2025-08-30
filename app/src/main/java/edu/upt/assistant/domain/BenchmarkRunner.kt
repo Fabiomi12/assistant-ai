@@ -9,6 +9,8 @@ import edu.upt.assistant.R
 import edu.upt.assistant.data.SettingsKeys
 import android.util.Log
 import edu.upt.assistant.domain.rag.RagChatRepository
+import edu.upt.assistant.data.metrics.GenerationMetrics
+import edu.upt.assistant.data.metrics.MetricsLogger
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -121,6 +123,37 @@ class BenchmarkRunner @Inject constructor(
                                 val out = builder.toString().trim()
                                 prompt.expected_regex?.let { rx ->
                                     val passed = Regex(rx, RegexOption.IGNORE_CASE).containsMatchIn(out)
+                                    MetricsLogger.log(
+                                        context,
+                                        GenerationMetrics(
+                                            timestamp = System.currentTimeMillis(),
+                                            prefillTimeMs = 0,
+                                            firstSampleDelayMs = 0,
+                                            firstTokenTimeMs = 0,
+                                            decodeTimeMs = 0,
+                                            decodeSpeed = 0.0,
+                                            batteryDelta = 0f,
+                                            startTempC = 0f,
+                                            endTempC = 0f,
+                                            promptChars = text.length,
+                                            promptTokens = 0,
+                                            historyTokens = 0,
+                                            retrievedCtxTokens = 0,
+                                            outputTokens = 0,
+                                            promptId = prompt.id,
+                                            category = prompt.category,
+                                            ragEnabled = rag,
+                                            memoryEnabled = memory,
+                                            topK = 0,
+                                            maxTokens = maxTokens,
+                                            nThreads = threads,
+                                            nBatch = 0,
+                                            nUbatch = 0,
+                                            model = model.fileName,
+                                            passed = passed,
+                                            output = out,
+                                        ),
+                                    )
                                     Log.d("BenchmarkRunner", "${prompt.id} => $passed : $out")
                                 }
                             }
