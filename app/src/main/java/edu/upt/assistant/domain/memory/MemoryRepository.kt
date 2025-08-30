@@ -88,15 +88,7 @@ class MemoryRepository @Inject constructor(
     suspend fun search(query: String, topK: Int = 3): List<MemoryEntity> {
         Log.d(TAG, "Searching memories for query: $query")
 
-        // 1) Embed query (L2-normalized)
-        val q = try {
-            l2Normalize(vectorStore.generateEmbedding(query))
-        } catch (t: Throwable) {
-            Log.e(TAG, "Embedding failed for query", t)
-            return emptyList()
-        }
-
-        // 2) Load all memories & ensure embeddings are cached (lazy, only missing ones)
+        // 1) Load all memories & ensure embeddings are cached (lazy, only missing ones)
         val memories = memoryDao.getAll().first()
         if (memories.isEmpty()) {
             Log.d(TAG, "No memories found in database")
@@ -104,12 +96,22 @@ class MemoryRepository @Inject constructor(
         }
         memories.forEach { ensureCached(it) }
 
-        // 3) Score (cosine = dot since everything is L2-normalized)
-        val scored = memories.mapNotNull { m ->
-            val emb = embedCache[m.id] ?: return@mapNotNull null
-            val dot = dot(q, emb)
-            MemoryMatch(m, dot, emb)
+        // 2) Try to embed query (L2-normalized). If embedding fails, we'll fall back to keyword search.
+        val q = try {
+            l2Normalize(vectorStore.generateEmbedding(query))
+        } catch (t: Throwable) {
+            Log.e(TAG, "Embedding failed for query", t)
+            null
         }
+
+        // 3) Score (cosine = dot since everything is L2-normalized)
+        val scored = if (q != null) {
+            memories.mapNotNull { m ->
+                val emb = embedCache[m.id] ?: return@mapNotNull null
+                val dot = dot(q, emb)
+                MemoryMatch(m, dot, emb)
+            }
+        } else emptyList()
 
         if (scored.isEmpty()) {
             val queryTerms = query.lowercase().split(Regex("\\W+")).filter { it.length > 2 }

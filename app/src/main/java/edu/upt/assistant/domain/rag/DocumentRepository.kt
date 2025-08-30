@@ -88,10 +88,45 @@ class DocumentRepository @Inject constructor(
         Log.d(TAG, "Searching for similar content: $query")
         
         Log.d(TAG, "TIMING: Starting embedding generation at ${System.currentTimeMillis()}")
-        val queryEmbedding = vectorStore.generateEmbedding(query)
+        val queryEmbedding = try {
+            vectorStore.generateEmbedding(query)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to generate query embedding, falling back to keyword search", t)
+            null
+        }
+        if (queryEmbedding == null) {
+            val entities = documentDao.getAllDocuments().first()
+            val queryTerms = query.lowercase().split(Regex("\\W+")).filter { it.length > 2 }
+            if (queryTerms.isNotEmpty()) {
+                val fallback = mutableListOf<RetrievedChunk>()
+                entities.forEach { entity ->
+                    try {
+                        val chunks: List<String> = json.decodeFromString(entity.chunks)
+                        chunks.forEachIndexed { idx, text ->
+                            val lower = text.lowercase()
+                            if (queryTerms.any { lower.contains(it) }) {
+                                fallback.add(
+                                    RetrievedChunk(
+                                        text = text,
+                                        similarity = 1.0f,
+                                        documentId = entity.id,
+                                        documentTitle = entity.title,
+                                        chunkIndex = idx
+                                    )
+                                )
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error processing document '${entity.title}' for fallback", e)
+                    }
+                }
+                return fallback.take(topK)
+            }
+            return emptyList()
+        }
         Log.d(TAG, "TIMING: Embedding generation completed at ${System.currentTimeMillis()}")
         Log.d(TAG, "Generated query embedding")
-        
+
         // Get current snapshot of documents instead of collecting indefinitely
         Log.d(TAG, "TIMING: Starting database query at ${System.currentTimeMillis()}")
         val entities = documentDao.getAllDocuments().first()
