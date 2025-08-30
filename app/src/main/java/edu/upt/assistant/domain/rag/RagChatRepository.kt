@@ -134,6 +134,7 @@ class RagChatRepository @Inject constructor(
             val ragEnabled   = prefs[SettingsKeys.RAG_ENABLED]    ?: true
             val memoryEnabled= prefs[SettingsKeys.MEMORY_ENABLED] ?: true
             val maxTokensCfg = prefs[SettingsKeys.MAX_TOKENS]     ?: guessMaxTokens(text)
+            val benchCategory= prefs[SettingsKeys.BENCH_CATEGORY] ?: ""
             val modelUrlPref = runBlocking { baseRepository.getModelUrl() }
             val nThreadsCfg  = prefs[SettingsKeys.nThreadsForModel(modelUrlPref)]
                 ?: prefs[SettingsKeys.N_THREADS]
@@ -309,7 +310,7 @@ class RagChatRepository @Inject constructor(
                         retrievedCtxTokens= retrievedCtxTokens,
                         outputTokens      = outputTokApprox,
                         promptId          = conversationId,
-                        category          = "",
+                        category          = benchCategory,
                         ragEnabled        = ragEnabled,
                         memoryEnabled     = memoryEnabled,
                         topK              = if (ragEnabled) docTopK else 0,

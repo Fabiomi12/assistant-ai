@@ -5,11 +5,11 @@ import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.remove
 import dagger.hilt.android.qualifiers.ApplicationContext
 import edu.upt.assistant.R
 import edu.upt.assistant.data.SettingsKeys
-import edu.upt.assistant.data.metrics.GenerationMetrics
-import edu.upt.assistant.data.metrics.MetricsLogger
+import edu.upt.assistant.domain.rag.DocumentRepository
 import edu.upt.assistant.domain.rag.RagChatRepository
 import edu.upt.assistant.ui.screens.Conversation
 import kotlinx.coroutines.flow.*
@@ -34,6 +34,7 @@ data class BenchmarkPrompt(
     val insert_memory: String? = null,
     val doc_id: String? = null,
     val doc_text: String? = null,
+    val ref_doc_id: String? = null,
 )
 
 @Singleton
@@ -41,6 +42,7 @@ class BenchmarkRunner @Inject constructor(
     @ApplicationContext private val context: Context,
     private val chatRepository: ChatRepository,
     private val ragRepository: RagChatRepository,
+    private val documentRepository: DocumentRepository,
     private val dataStore: DataStore<Preferences>,
     private val modelDownloadManager: ModelDownloadManager
 ) {
@@ -103,6 +105,9 @@ class BenchmarkRunner @Inject constructor(
                     prompt.temp?.let { ensureTemp(it.toFloat()) }
                     prompt.max_tokens?.let { ensureMaxTokens(it) }
 
+                    // Tag metrics with benchmark category
+                    ensureBenchCategory(prompt.category)
+
                     val ragOn = lastRag == true
                     val memOn = lastMem == true
                     val nThreads = lastThreads ?: bestThreads
@@ -140,6 +145,10 @@ class BenchmarkRunner @Inject constructor(
                             val passed = Regex(rx, RegexOption.IGNORE_CASE).matches(out)
                             Log.d("BenchmarkRunner", "${prompt.id} => passed=$passed ftl=${ftlMs}ms total=${totalMs}ms")
                         }
+                        if (prompt.category == "rag" && prompt.ref_doc_id != null) {
+                            val (hit, rank) = computeHitAtK(text, prompt.ref_doc_id, 5)
+                            Log.d("BenchmarkRunner", "${prompt.id} => hitAt5=$hit${rank?.let { ", rank=$it" } ?: ""}")
+                        }
                     } else {
                         // FTL-only entry if you want to keep a tiny log (again, avoid MetricsLogger here)
                         Log.d("BenchmarkRunner", "${prompt.id} => ftl=${ftlMs}ms (FTL only)")
@@ -150,12 +159,33 @@ class BenchmarkRunner @Inject constructor(
                     // Restore defaults if you overrode per-prompt
                     prompt.temp?.let { ensureTemp(null) } // remove override → repo default
                     prompt.max_tokens?.let { ensureMaxTokens(defaultMaxTokens) }
+                    ensureBenchCategory(null)
                 }
             }
         }
     }
 
     // --- helpers ---
+
+    private suspend fun computeHitAtK(query: String, refDocId: String, k: Int): Pair<Boolean, Int?> {
+        return try {
+            val retrieved = documentRepository.searchSimilarContent(query, topK = k)
+            val idx = retrieved.indexOfFirst {
+                it.documentId.equals(refDocId, true) || it.documentTitle.equals(refDocId, true)
+            }
+            Pair(idx >= 0, if (idx >= 0) idx + 1 else null)
+        } catch (t: Throwable) {
+            Log.w("BenchmarkRunner", "Hit@k failed: ${t.message}")
+            Pair(false, null)
+        }
+    }
+
+    private suspend fun ensureBenchCategory(cat: String?) {
+        dataStore.edit { prefs ->
+            if (cat == null) prefs.remove(SettingsKeys.BENCH_CATEGORY)
+            else prefs[SettingsKeys.BENCH_CATEGORY] = cat
+        }
+    }
 
     private suspend fun measureFirstToken(conversationId: String, text: String): Long {
         val start = System.nanoTime()
@@ -171,7 +201,7 @@ class BenchmarkRunner @Inject constructor(
         var best = candidates.first()
         var bestMs = Long.MAX_VALUE
         ensureRag(false); ensureMem(false)
-        ensureMaxTokens(16); ensureTemp(0f)
+        ensureMaxTokens(1); ensureTemp(0f)
 
         for (t in candidates) {
             ensureThreads(t)
