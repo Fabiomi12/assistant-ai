@@ -33,6 +33,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -51,6 +53,7 @@ class ChatRepositoryImpl @Inject constructor(
 ) : ChatRepository {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val nativeMutex = Mutex()
     private var llamaCtxDeferred: Deferred<Long>? = null
     private var threadCount: Int = 0
     private var modelName: String = ""
@@ -70,32 +73,34 @@ class ChatRepositoryImpl @Inject constructor(
 
     private fun initLlamaContext(): Deferred<Long> {
         return scope.async {
-            Log.d("ChatRepository", "Initializing llama context")
-            val url = getModelUrl()
-            if (!modelDownloadManager.isModelAvailable(url)) {
-                Log.e("ChatRepository", "Model not available")
-                throw IllegalStateException("Model not available. Please download the model first.")
+            nativeMutex.withLock {
+                Log.d("ChatRepository", "Initializing llama context")
+                val url = getModelUrl()
+                if (!modelDownloadManager.isModelAvailable(url)) {
+                    Log.e("ChatRepository", "Model not available")
+                    throw IllegalStateException("Model not available. Please download the model first.")
+                }
+
+                val modelPath = modelDownloadManager.getModelPath(url)
+                Log.d("ChatRepository", "Model path: $modelPath")
+
+                val prefs = dataStore.data.first()
+                val configured = prefs[SettingsKeys.nThreadsForModel(url)] ?: prefs[SettingsKeys.N_THREADS]
+                val optimal = minOf(8, maxOf(6, Runtime.getRuntime().availableProcessors() / 2))
+                threadCount = configured ?: optimal
+
+                modelName = java.io.File(modelPath).name
+                val ctx = LlamaNative.llamaCreate(
+                    modelPath,
+                    threadCount
+                )
+                if (ctx == 0L) {
+                    Log.e("ChatRepository", "Failed to create llama context")
+                    throw IllegalStateException("Failed to create llama context")
+                }
+                Log.d("ChatRepository", "Llama context created: $ctx")
+                ctx
             }
-
-            val modelPath = modelDownloadManager.getModelPath(url)
-            Log.d("ChatRepository", "Model path: $modelPath")
-
-            val prefs = dataStore.data.first()
-            val configured = prefs[SettingsKeys.nThreadsForModel(url)] ?: prefs[SettingsKeys.N_THREADS]
-            val optimal = minOf(8, maxOf(6, Runtime.getRuntime().availableProcessors() / 2))
-            threadCount = configured ?: optimal
-
-            modelName = java.io.File(modelPath).name
-            val ctx = LlamaNative.llamaCreate(
-                modelPath,
-                threadCount
-            )
-            if (ctx == 0L) {
-                Log.e("ChatRepository", "Failed to create llama context")
-                throw IllegalStateException("Failed to create llama context")
-            }
-            Log.d("ChatRepository", "Llama context created: $ctx")
-            ctx
         }.also { llamaCtxDeferred = it }
     }
 
@@ -128,22 +133,25 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     private fun destroyLlamaContext() {
-        llamaCtxDeferred?.let {
-            if (it.isCompleted) {
-                val ctx = runBlocking { it.await() }
-                if (ctx != 0L) {
-                    try {
-                        LlamaNative.llamaFree(ctx)
-                        Log.d("ChatRepository", "Destroyed old llama context: $ctx")
-                    } catch (e: Exception) {
-                        Log.e("ChatRepository", "Failed to destroy llama context", e)
+        scope.launch {
+            nativeMutex.withLock {
+                llamaCtxDeferred?.let { deferred ->
+                    if (deferred.isCompleted) {
+                        val ctx = deferred.await()
+                        if (ctx != 0L) {
+                            try {
+                                LlamaNative.llamaFree(ctx)
+                                Log.d("ChatRepository", "Destroyed old llama context: $ctx")
+                            } catch (e: Exception) {
+                                Log.e("ChatRepository", "Failed to destroy llama context", e)
+                            }
+                        }
                     }
+                    deferred.cancel()
                 }
+                llamaCtxDeferred = null
             }
-            // Cancel the deferred if still active
-            it.cancel()
         }
-        llamaCtxDeferred = null
     }
 
     // Keep a ConversationManager per conversation
@@ -241,34 +249,37 @@ class ChatRepositoryImpl @Inject constructor(
             withContext(Dispatchers.IO) {
                 Log.d("ChatRepository", "Starting token generation at ${System.currentTimeMillis()}")
                 try {
-                    LlamaNative.llamaGenerateStream(
-                        ctx,
-                        prompt,
-                        maxTokens,  // Reduced for faster first token
-                        object : StreamCallback {
-                            override fun onTimings(prefillMs: Long, firstSampleDelayMs: Long) {
-                                nativePrefill = prefillMs
-                                nativeFirstSample = firstSampleDelayMs
-                            }
-                            override fun onToken(token: String) {
-                                if (firstTokenTime == null) {
-                                    firstTokenTime = System.currentTimeMillis()
-                                    Log.d("ChatRepository", "🚀 PERFORMANCE: First token after ${firstTokenTime!! - llamaStartTime}ms")
+                    nativeMutex.withLock {
+                        LlamaNative.llamaGenerateStream(
+                            ctx,
+                            prompt,
+                            maxTokens,  // Reduced for faster first token
+                            object : StreamCallback {
+                                override fun onTimings(prefillMs: Long, firstSampleDelayMs: Long) {
+                                    nativePrefill = prefillMs
+                                    nativeFirstSample = firstSampleDelayMs
                                 }
+                                override fun onToken(token: String) {
+                                    if (firstTokenTime == null) {
+                                        firstTokenTime = System.currentTimeMillis()
+                                        Log.d("ChatRepository", "🚀 PERFORMANCE: First token after ${firstTokenTime!! - llamaStartTime}ms")
+                                    }
 
-                                Log.d("ChatRepository", "Generated token: $token")
-                                tokenCount++
+                                    Log.d("ChatRepository", "Generated token: $token")
+                                    tokenCount++
 
-                                val normalized = normalizeToken(token)
-                                val output = if (builder.isEmpty()) normalized.trimStart() else normalized
+                                    val normalized = normalizeToken(token)
+                                    val output = if (builder.isEmpty()) normalized.trimStart() else normalized
 
-                                val success = trySend(output).isSuccess
-                                if (success) {
-                                    builder.append(output)
+                                    val success = trySend(output).isSuccess
+                                    if (success) {
+                                        builder.append(output)
+                                    }
                                 }
                             }
-                        }
-                    )
+                        )
+                        LlamaNative.llamaKvCacheClear(ctx)
+                    }
                 } catch (e: Throwable) {
                     generationFailed = true
                     Log.e("ChatRepository", "Error during streaming", e)
@@ -282,8 +293,6 @@ class ChatRepositoryImpl @Inject constructor(
                     trySend(msg)
                 }
             }
-
-            LlamaNative.llamaKvCacheClear(ctx)
 
             // 4) after streaming, persist assistant message
             val reply = builder.toString()
@@ -386,6 +395,13 @@ class ChatRepositoryImpl @Inject constructor(
     
     // Public methods for RAG repository access
     suspend fun getLlamaContextPublic(): Long = getLlamaContext()
+
+    suspend fun clearKvCache() {
+        val ctx = getLlamaContext()
+        nativeMutex.withLock {
+            LlamaNative.llamaKvCacheClear(ctx)
+        }
+    }
     
     fun normalizeTokenPublic(token: String): String = normalizeToken(token)
 
