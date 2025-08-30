@@ -117,92 +117,35 @@ class BenchmarkRunner @Inject constructor(
                     chatRepository.createConversation(
                         Conversation(id = convFtl, title = convFtl, lastMessage = text, timestamp = timestamp)
                     )
+                    // BEFORE full run:
+                    val prevMax = lastMaxTokens
+                    ensureMaxTokens(1) // FTL-friendly
                     val ftlMs = measureFirstToken(convFtl, text)
+                    ensureMaxTokens(prevMax ?: maxTok) // restore
 
-                    // --- 2) Full run (only if regex needs validation OR FULL profile) ---
-                    var out = ""
+// FULL RUN BRANCH (regex or FULL profile)
                     if (prompt.expected_regex != null || profile == BenchmarkProfile.FULL) {
                         val convFull = "${baseId}-full"
-                        chatRepository.createConversation(
-                            Conversation(id = convFull, title = convFull, lastMessage = text, timestamp = timestamp)
-                        )
-                        val builder = StringBuilder()
-                        val start2 = System.nanoTime()
-                        chatRepository.sendMessage(convFull, text).collect { tok -> builder.append(tok) }
-                        val totalMs = (System.nanoTime() - start2) / 1_000_000
-                        out = builder.toString().trim()
+                        chatRepository.createConversation(Conversation(convFull, convFull, text, timestamp))
 
-                        val passed = prompt.expected_regex?.let { rx ->
-                            Regex(rx, RegexOption.IGNORE_CASE).matches(out)
-                        } ?: true
+                        // let RagChatRepository be source of truth for latency/throughput/battery/temp/etc.
+                        val sb = StringBuilder()
+                        val start = System.nanoTime()
+                        chatRepository.sendMessage(convFull, text).collect { tok -> sb.append(tok) }
+                        val out = sb.toString().trim()
+                        val totalMs = (System.nanoTime() - start) / 1_000_000
 
-                        MetricsLogger.log(
-                            context,
-                            GenerationMetrics(
-                                timestamp = System.currentTimeMillis(),
-                                prefillTimeMs = 0,
-                                firstSampleDelayMs = ftlMs.toInt().coerceAtLeast(0),
-                                firstTokenTimeMs = ftlMs.toInt().coerceAtLeast(0),
-                                decodeTimeMs = totalMs.toInt(),
-                                decodeSpeed = 0.0, // optional: fill if you count tokens
-                                batteryDelta = 0f,
-                                startTempC = 0f,
-                                endTempC = 0f,
-                                promptChars = text.length,
-                                promptTokens = 0,
-                                historyTokens = 0,
-                                retrievedCtxTokens = 0,
-                                outputTokens = 0,
-                                promptId = prompt.id,
-                                category = prompt.category,
-                                ragEnabled = ragOn,
-                                memoryEnabled = memOn,
-                                topK = 0,
-                                maxTokens = maxTok,
-                                nThreads = nThreads,
-                                nBatch = 0,
-                                nUbatch = 0,
-                                model = model.fileName,
-                                passed = passed,
-                                output = out,
-                            )
-                        )
-                        Log.d("BenchmarkRunner", "${prompt.id} => passed=$passed ftl=${ftlMs}ms out=${out.take(120)}")
+                        // Optional: do ONLY correctness here (no MetricsLogger.log to avoid duplicates)
+                        prompt.expected_regex?.let { rx ->
+                            val passed = Regex(rx, RegexOption.IGNORE_CASE).matches(out)
+                            Log.d("BenchmarkRunner", "${prompt.id} => passed=$passed ftl=${ftlMs}ms total=${totalMs}ms")
+                        }
                     } else {
-                        // Still log FTL-only entry (minimal)
-                        MetricsLogger.log(
-                            context,
-                            GenerationMetrics(
-                                timestamp = System.currentTimeMillis(),
-                                prefillTimeMs = 0,
-                                firstSampleDelayMs = ftlMs.toInt().coerceAtLeast(0),
-                                firstTokenTimeMs = ftlMs.toInt().coerceAtLeast(0),
-                                decodeTimeMs = 0,
-                                decodeSpeed = 0.0,
-                                batteryDelta = 0f,
-                                startTempC = 0f,
-                                endTempC = 0f,
-                                promptChars = text.length,
-                                promptTokens = 0,
-                                historyTokens = 0,
-                                retrievedCtxTokens = 0,
-                                outputTokens = 0,
-                                promptId = prompt.id,
-                                category = prompt.category,
-                                ragEnabled = ragOn,
-                                memoryEnabled = memOn,
-                                topK = 0,
-                                maxTokens = maxTok,
-                                nThreads = nThreads,
-                                nBatch = 0,
-                                nUbatch = 0,
-                                model = model.fileName,
-                                passed = null,
-                                output = out
-                            )
-                        )
+                        // FTL-only entry if you want to keep a tiny log (again, avoid MetricsLogger here)
                         Log.d("BenchmarkRunner", "${prompt.id} => ftl=${ftlMs}ms (FTL only)")
                     }
+
+
 
                     // Restore defaults if you overrode per-prompt
                     prompt.temp?.let { ensureTemp(null) } // remove override → repo default
