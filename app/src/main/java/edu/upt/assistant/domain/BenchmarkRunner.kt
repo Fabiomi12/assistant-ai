@@ -1,27 +1,27 @@
 package edu.upt.assistant.domain
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import dagger.hilt.android.qualifiers.ApplicationContext
 import edu.upt.assistant.R
 import edu.upt.assistant.data.SettingsKeys
-import android.util.Log
-import edu.upt.assistant.domain.rag.RagChatRepository
 import edu.upt.assistant.data.metrics.GenerationMetrics
 import edu.upt.assistant.data.metrics.MetricsLogger
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
+import edu.upt.assistant.domain.rag.RagChatRepository
+import edu.upt.assistant.ui.screens.Conversation
+import kotlinx.coroutines.flow.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import javax.inject.Inject
-import javax.inject.Singleton
-import edu.upt.assistant.ui.screens.Conversation
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import javax.inject.Inject
+import javax.inject.Singleton
+
+enum class BenchmarkProfile { FAST, FULL }
 
 @Serializable
 data class BenchmarkPrompt(
@@ -44,132 +44,252 @@ class BenchmarkRunner @Inject constructor(
     private val dataStore: DataStore<Preferences>,
     private val modelDownloadManager: ModelDownloadManager
 ) {
-    suspend fun run() {
+    // Cache last-applied settings to avoid churny writes
+    private var lastModelUrl: String? = null
+    private var lastThreads: Int? = null
+    private var lastRag: Boolean? = null
+    private var lastMem: Boolean? = null
+    private var lastTemp: Float? = null
+    private var lastMaxTokens: Int? = null
+
+    suspend fun run(profile: BenchmarkProfile = BenchmarkProfile.FAST) {
         val prompts = loadPrompts()
-        val setupPrompts = prompts.filter {
-            it.category == "memory_setup" || it.category == "rag_setup"
-        }
+        val setupPrompts = prompts.filter { it.category == "memory_setup" || it.category == "rag_setup" }
         val testPrompts = prompts - setupPrompts
 
-        for (prompt in setupPrompts) {
-            when (prompt.category) {
-                "memory_setup" -> prompt.insert_memory?.let { ragRepository.addMemory(it) }
-                "rag_setup" -> if (prompt.doc_id != null && prompt.doc_text != null) {
-                    ragRepository.addDocument(prompt.doc_id, prompt.doc_text)
+        // --- Ingest setup once (outside any sweeps) ---
+        for (p in setupPrompts) {
+            when (p.category) {
+                "memory_setup" -> p.insert_memory?.let { ragRepository.addMemory(it.trim()) }
+                "rag_setup" -> if (p.doc_id != null && p.doc_text != null) {
+                    ragRepository.addDocument(p.doc_id, p.doc_text.trim())
                 }
             }
         }
 
+        // --- Models to run ---
         val modelUrls = dataStore.data.map { prefs ->
             prefs[SettingsKeys.MODEL_URLS] ?: setOf(ModelDownloadManager.DEFAULT_MODEL_URL)
         }.first()
         val models = modelDownloadManager.getAllModelInfo(modelUrls)
 
-        val threadOptions = listOf(6, 8)
-        val ragOptions = listOf(false, true)
-        val memoryOptions = listOf(false, true)
-        val tokenOptions = listOf(64, 128)
+        val tokenSets = if (profile == BenchmarkProfile.FAST) listOf(64) else listOf(64, 128)
 
         for (model in models) {
-            // Select model (repo will destroy/recreate context on change)
-            dataStore.edit { it[SettingsKeys.SELECTED_MODEL] = model.url }
+            ensureModel(model.url)
 
-            for (threads in threadOptions) {
-                // Make repo honor threads (ensure ChatRepositoryImpl reads this on init)
-                dataStore.edit { it[SettingsKeys.N_THREADS] = threads }
+            // --- Calibrate threads quickly (e.g., 6 vs 8) ---
+            val bestThreads = calibrateThreads(model.fileName, candidates = listOf(6, 8), sampleText =
+                testPrompts.firstOrNull { it.category == "general" && !it.text.isNullOrBlank() }?.text ?: "OK"
+            )
+            ensureThreads(bestThreads)
 
-                for (rag in ragOptions) {
-                    dataStore.edit { it[SettingsKeys.RAG_ENABLED] = rag }
+            for (defaultMaxTokens in tokenSets) {
+                ensureMaxTokens(defaultMaxTokens)
 
-                    for (memory in memoryOptions) {
-                        // Set BOTH keys for compatibility
-                        dataStore.edit {
-                            it[SettingsKeys.MEMORY_ENABLED] = memory     // used by RagChatRepository
-                            it[SettingsKeys.AUTO_SAVE_MEMORIES] = memory  // used by Settings UI
-                        }
+                for (prompt in testPrompts) {
+                    // Skip malformed entries
+                    val text = prompt.text ?: continue
 
-                        for (maxTokens in tokenOptions) {
-                            dataStore.edit { it[SettingsKeys.MAX_TOKENS] = maxTokens }
-
-                            for (prompt in testPrompts) {
-                                prompt.temp?.let { t ->
-                                    dataStore.edit { it[SettingsKeys.TEMP] = t.toFloat() }
-                                }
-                                prompt.max_tokens?.let { mt ->
-                                    dataStore.edit { it[SettingsKeys.MAX_TOKENS] = mt }
-                                }
-
-                                val conversationId =
-                                    "bench-${prompt.id}-${model.fileName}-t${threads}-rag${rag}-mem${memory}-tok${maxTokens}"
-                                val timestamp = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
-                                    .format(Date())
-
-                                val text = prompt.text ?: ""
-                                chatRepository.createConversation(
-                                    Conversation(
-                                        id = conversationId,
-                                        title = conversationId,
-                                        lastMessage = text,
-                                        timestamp = timestamp
-                                    )
-                                )
-
-                                // Run and stream output; metrics are logged inside RagChatRepository.
-                                val builder = StringBuilder()
-                                chatRepository
-                                    .sendMessage(conversationId, text)
-                                    .collect { token -> builder.append(token) }
-
-                                val out = builder.toString().trim()
-                                prompt.expected_regex?.let { rx ->
-                                    val passed = Regex(rx, RegexOption.IGNORE_CASE).containsMatchIn(out)
-                                    MetricsLogger.log(
-                                        context,
-                                        GenerationMetrics(
-                                            timestamp = System.currentTimeMillis(),
-                                            prefillTimeMs = 0,
-                                            firstSampleDelayMs = 0,
-                                            firstTokenTimeMs = 0,
-                                            decodeTimeMs = 0,
-                                            decodeSpeed = 0.0,
-                                            batteryDelta = 0f,
-                                            startTempC = 0f,
-                                            endTempC = 0f,
-                                            promptChars = text.length,
-                                            promptTokens = 0,
-                                            historyTokens = 0,
-                                            retrievedCtxTokens = 0,
-                                            outputTokens = 0,
-                                            promptId = prompt.id,
-                                            category = prompt.category,
-                                            ragEnabled = rag,
-                                            memoryEnabled = memory,
-                                            topK = 0,
-                                            maxTokens = maxTokens,
-                                            nThreads = threads,
-                                            nBatch = 0,
-                                            nUbatch = 0,
-                                            model = model.fileName,
-                                            passed = passed,
-                                            output = out,
-                                        ),
-                                    )
-                                    Log.d("BenchmarkRunner", "${prompt.id} => $passed : $out")
-                                }
-                            }
-                        }
+                    // Per-prompt feature gating
+                    when (prompt.category) {
+                        "general" -> { ensureRag(false); ensureMem(false) }
+                        "memory"  -> { ensureRag(false); ensureMem(true)  }
+                        "rag"     -> { ensureRag(true);  ensureMem(false) }
+                        else -> continue // ignore *_setup
                     }
+
+                    // Per-prompt overrides (only write if changed)
+                    prompt.temp?.let { ensureTemp(it.toFloat()) }
+                    prompt.max_tokens?.let { ensureMaxTokens(it) }
+
+                    val ragOn = lastRag == true
+                    val memOn = lastMem == true
+                    val nThreads = lastThreads ?: bestThreads
+                    val maxTok = lastMaxTokens ?: defaultMaxTokens
+
+                    // --- Conversation ids ---
+                    val baseId = "bench-${prompt.id}-${model.fileName}-t${nThreads}-rag${ragOn}-mem${memOn}-tok${maxTok}"
+                    val timestamp = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date())
+
+                    // --- 1) First-token latency (cheap) ---
+                    val convFtl = "${baseId}-ftl"
+                    chatRepository.createConversation(
+                        Conversation(id = convFtl, title = convFtl, lastMessage = text, timestamp = timestamp)
+                    )
+                    val ftlMs = measureFirstToken(convFtl, text)
+
+                    // --- 2) Full run (only if regex needs validation OR FULL profile) ---
+                    var out = ""
+                    if (prompt.expected_regex != null || profile == BenchmarkProfile.FULL) {
+                        val convFull = "${baseId}-full"
+                        chatRepository.createConversation(
+                            Conversation(id = convFull, title = convFull, lastMessage = text, timestamp = timestamp)
+                        )
+                        val builder = StringBuilder()
+                        val start2 = System.nanoTime()
+                        chatRepository.sendMessage(convFull, text).collect { tok -> builder.append(tok) }
+                        val totalMs = (System.nanoTime() - start2) / 1_000_000
+                        out = builder.toString().trim()
+
+                        val passed = prompt.expected_regex?.let { rx ->
+                            Regex(rx, RegexOption.IGNORE_CASE).matches(out)
+                        } ?: true
+
+                        MetricsLogger.log(
+                            context,
+                            GenerationMetrics(
+                                timestamp = System.currentTimeMillis(),
+                                prefillTimeMs = 0,
+                                firstSampleDelayMs = ftlMs.toInt().coerceAtLeast(0),
+                                firstTokenTimeMs = ftlMs.toInt().coerceAtLeast(0),
+                                decodeTimeMs = totalMs.toInt(),
+                                decodeSpeed = 0.0, // optional: fill if you count tokens
+                                batteryDelta = 0f,
+                                startTempC = 0f,
+                                endTempC = 0f,
+                                promptChars = text.length,
+                                promptTokens = 0,
+                                historyTokens = 0,
+                                retrievedCtxTokens = 0,
+                                outputTokens = 0,
+                                promptId = prompt.id,
+                                category = prompt.category,
+                                ragEnabled = ragOn,
+                                memoryEnabled = memOn,
+                                topK = 0,
+                                maxTokens = maxTok,
+                                nThreads = nThreads,
+                                nBatch = 0,
+                                nUbatch = 0,
+                                model = model.fileName,
+                                passed = passed,
+                                output = out,
+                            )
+                        )
+                        Log.d("BenchmarkRunner", "${prompt.id} => passed=$passed ftl=${ftlMs}ms out=${out.take(120)}")
+                    } else {
+                        // Still log FTL-only entry (minimal)
+                        MetricsLogger.log(
+                            context,
+                            GenerationMetrics(
+                                timestamp = System.currentTimeMillis(),
+                                prefillTimeMs = 0,
+                                firstSampleDelayMs = ftlMs.toInt().coerceAtLeast(0),
+                                firstTokenTimeMs = ftlMs.toInt().coerceAtLeast(0),
+                                decodeTimeMs = 0,
+                                decodeSpeed = 0.0,
+                                batteryDelta = 0f,
+                                startTempC = 0f,
+                                endTempC = 0f,
+                                promptChars = text.length,
+                                promptTokens = 0,
+                                historyTokens = 0,
+                                retrievedCtxTokens = 0,
+                                outputTokens = 0,
+                                promptId = prompt.id,
+                                category = prompt.category,
+                                ragEnabled = ragOn,
+                                memoryEnabled = memOn,
+                                topK = 0,
+                                maxTokens = maxTok,
+                                nThreads = nThreads,
+                                nBatch = 0,
+                                nUbatch = 0,
+                                model = model.fileName,
+                                passed = null,
+                                output = out
+                            )
+                        )
+                        Log.d("BenchmarkRunner", "${prompt.id} => ftl=${ftlMs}ms (FTL only)")
+                    }
+
+                    // Restore defaults if you overrode per-prompt
+                    prompt.temp?.let { ensureTemp(null) } // remove override → repo default
+                    prompt.max_tokens?.let { ensureMaxTokens(defaultMaxTokens) }
                 }
             }
         }
     }
 
+    // --- helpers ---
+
+    private suspend fun measureFirstToken(conversationId: String, text: String): Long {
+        val start = System.nanoTime()
+        val firstTok = chatRepository.sendMessage(conversationId, text).take(1).firstOrNull()
+        return if (firstTok == null) -1 else (System.nanoTime() - start) / 1_000_000
+    }
+
+    private suspend fun calibrateThreads(
+        modelFileName: String,
+        candidates: List<Int>,
+        sampleText: String
+    ): Int {
+        var best = candidates.first()
+        var bestMs = Long.MAX_VALUE
+        ensureRag(false); ensureMem(false)
+        ensureMaxTokens(16); ensureTemp(0f)
+
+        for (t in candidates) {
+            ensureThreads(t)
+            val convId = "calib-$modelFileName-t$t-${System.currentTimeMillis()}"
+            val ts = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date())
+            chatRepository.createConversation(Conversation(convId, convId, sampleText, ts))
+            val ms = measureFirstToken(convId, sampleText)
+            if (ms in 1 until bestMs) { bestMs = ms; best = t }
+            Log.d("BenchmarkRunner", "Calibrate threads=$t → FTL=${ms}ms")
+        }
+        Log.d("BenchmarkRunner", "Best threads=$best (FTL=${bestMs}ms)")
+        return best
+    }
+
+    private suspend fun ensureModel(url: String) {
+        if (lastModelUrl == url) return
+        dataStore.edit { it[SettingsKeys.SELECTED_MODEL] = url }
+        lastModelUrl = url
+    }
+
+    private suspend fun ensureThreads(n: Int) {
+        if (lastThreads == n) return
+        dataStore.edit { it[SettingsKeys.N_THREADS] = n }
+        lastThreads = n
+    }
+
+    private suspend fun ensureRag(enabled: Boolean) {
+        if (lastRag == enabled) return
+        dataStore.edit { it[SettingsKeys.RAG_ENABLED] = enabled }
+        lastRag = enabled
+    }
+
+    private suspend fun ensureMem(enabled: Boolean) {
+        if (lastMem == enabled) return
+        dataStore.edit {
+            it[SettingsKeys.MEMORY_ENABLED] = enabled
+            it[SettingsKeys.AUTO_SAVE_MEMORIES] = enabled
+        }
+        lastMem = enabled
+    }
+
+    private suspend fun ensureTemp(value: Float?) {
+        val v = value ?: DEFAULT_TEMP
+        if (lastTemp == v) return
+        dataStore.edit { it[SettingsKeys.TEMP] = v }
+        lastTemp = v
+    }
+
+    private suspend fun ensureMaxTokens(value: Int) {
+        if (lastMaxTokens == value) return
+        dataStore.edit { it[SettingsKeys.MAX_TOKENS] = value }
+        lastMaxTokens = value
+    }
 
     private fun loadPrompts(): List<BenchmarkPrompt> {
         val stream = context.resources.openRawResource(R.raw.benchmark_prompts)
         val json = stream.bufferedReader().use { it.readText() }
-        val jsonCodec = Json { ignoreUnknownKeys = true }
-        return jsonCodec.decodeFromString(json)
+        return Json { ignoreUnknownKeys = true }.decodeFromString(json)
+    }
+
+    companion object {
+        private const val DEFAULT_TEMP = 0.2f
     }
 }
-
