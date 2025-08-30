@@ -11,9 +11,16 @@ import android.util.Log
 import edu.upt.assistant.domain.rag.RagChatRepository
 import edu.upt.assistant.data.metrics.GenerationMetrics
 import edu.upt.assistant.data.metrics.MetricsLogger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
@@ -44,7 +51,23 @@ class BenchmarkRunner @Inject constructor(
     private val dataStore: DataStore<Preferences>,
     private val modelDownloadManager: ModelDownloadManager
 ) {
-    suspend fun run() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val _running = MutableStateFlow(false)
+    val running: StateFlow<Boolean> = _running.asStateFlow()
+
+    fun run() {
+        if (_running.value) return
+        scope.launch {
+            _running.value = true
+            try {
+                execute()
+            } finally {
+                _running.value = false
+            }
+        }
+    }
+
+    private suspend fun execute() {
         val prompts = loadPrompts()
         val setupPrompts = prompts.filter {
             it.category == "memory_setup" || it.category == "rag_setup"

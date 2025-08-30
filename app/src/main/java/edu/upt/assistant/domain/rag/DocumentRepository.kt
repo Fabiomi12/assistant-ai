@@ -155,6 +155,36 @@ class DocumentRepository @Inject constructor(
             Log.d(TAG, "Chunk similarity: ${chunk.similarity} from '${chunk.documentTitle}'")
         }
 
+        if (result.isEmpty()) {
+            Log.d(TAG, "No similar chunks found, falling back to keyword search")
+            val queryTerms = query.lowercase().split(Regex("\\W+")).filter { it.length > 2 }
+            if (queryTerms.isNotEmpty()) {
+                val fallback = mutableListOf<RetrievedChunk>()
+                entities.forEach { entity ->
+                    try {
+                        val chunks: List<String> = json.decodeFromString(entity.chunks)
+                        chunks.forEachIndexed { idx, text ->
+                            val lower = text.lowercase()
+                            if (queryTerms.any { lower.contains(it) }) {
+                                fallback.add(
+                                    RetrievedChunk(
+                                        text = text,
+                                        similarity = 1.0f,
+                                        documentId = entity.id,
+                                        documentTitle = entity.title,
+                                        chunkIndex = idx
+                                    )
+                                )
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error processing document '${entity.title}' for fallback", e)
+                    }
+                }
+                return fallback.take(topK)
+            }
+        }
+
         return result
     }
     

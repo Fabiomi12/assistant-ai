@@ -96,18 +96,11 @@ class SettingsViewModel @Inject constructor(
 
   fun getDownloadManager(): ModelDownloadManager = downloadManager
 
-  // Benchmark state
-  private val _benchmarkRunning = MutableStateFlow(false)
-  val benchmarkRunning: StateFlow<Boolean> = _benchmarkRunning.asStateFlow()
+  // Benchmark state sourced from BenchmarkRunner so it survives view changes
+  val benchmarkRunning: StateFlow<Boolean> = benchmarkRunner.running
 
-  fun runBenchmark() = viewModelScope.launch {
-    if (_benchmarkRunning.value) return@launch
-    _benchmarkRunning.value = true
-    try {
-      benchmarkRunner.run()
-    } finally {
-      _benchmarkRunning.value = false
-    }
+  fun runBenchmark() {
+    benchmarkRunner.run()
   }
 
   fun setUsername(name: String) = viewModelScope.launch {
