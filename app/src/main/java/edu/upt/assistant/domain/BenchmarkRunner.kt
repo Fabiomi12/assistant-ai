@@ -116,6 +116,8 @@ class BenchmarkRunner @Inject constructor(
 
                     // Tag metrics with benchmark category for RagChatRepository
                     ensureBenchCategory(prompt.category)
+                    ensureExpectedRegex(prompt.expected_regex)
+                    ensureRefDocId(prompt.ref_doc_id)
 
                     val ragOn = lastRag == true
                     val memOn = lastMem == true
@@ -162,6 +164,8 @@ class BenchmarkRunner @Inject constructor(
                     prompt.temp?.let { ensureTemp(null) } // remove override → repo default
                     prompt.max_tokens?.let { ensureMaxTokens(defaultMaxTokens) }
                     ensureBenchCategory(null)
+                    ensureExpectedRegex(null)
+                    ensureRefDocId(null)
                 }
             }
         }
@@ -187,6 +191,20 @@ class BenchmarkRunner @Inject constructor(
         dataStore.edit { prefs ->
             if (cat == null) prefs.remove(SettingsKeys.BENCH_CATEGORY)
             else prefs[SettingsKeys.BENCH_CATEGORY] = cat
+        }
+    }
+
+    private suspend fun ensureExpectedRegex(rx: String?) {
+        dataStore.edit { prefs ->
+            if (rx == null) prefs.remove(SettingsKeys.BENCH_EXPECTED_REGEX)
+            else prefs[SettingsKeys.BENCH_EXPECTED_REGEX] = rx
+        }
+    }
+
+    private suspend fun ensureRefDocId(id: String?) {
+        dataStore.edit { prefs ->
+            if (id == null) prefs.remove(SettingsKeys.BENCH_REF_DOC_ID)
+            else prefs[SettingsKeys.BENCH_REF_DOC_ID] = id
         }
     }
 
